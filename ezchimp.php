@@ -131,7 +131,7 @@ function ezchimp_activate() {
         mysql_query("DROP TABLE `mod_ezchimp`");
         return array('status'=>'error','description'=>'Could not add custom field');
     }
-    return array('status'=>'error','description'=>'Sorry, there was an error activating ezchimp.');
+    return array('status'=>'success','description'=>'ezchimp - Mailchimp Newsletter addon module activated');
 }
 
 function ezchimp_deactivate() {
