@@ -78,5 +78,6 @@ $_ADDONLANG['prev'] = "prev";
 $_ADDONLANG['next'] = "next";
 $_ADDONLANG['webhooks_failed'] = "WebHook setup failed for following lists:";
 $_ADDONLANG['webhooks_failed_desc'] = "Unsubscribing via MailChimp will not update subscription in WHMCS client profile";
+$_ADDONLANG['Domains'] = 'Domains';
 
 ?>

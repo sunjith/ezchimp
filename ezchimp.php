@@ -40,7 +40,7 @@ function ezchimp_config() {
     $configarray = array(
     "name" => "MailChimp newsletter",
     "description" => "Integrates with MailChimp. Supports subscribe/unsubscribe, multiple mailing lists and interest groups, multi-language.", //, synchronization
-    "version" => "1.13",
+    "version" => "1.15",
     "author" => "AdMod Technologies - www.admod.com",
     "language" => "english",
     "fields" => array(
@@ -968,7 +968,7 @@ function ezchimp_output($vars) {
 	    		break;
 
            case 'autosubscribe':
-                $productgroups = array();
+                $productgroups = array('Domains');
                 $flag=false;
 	    		$query = "SELECT `name` FROM `tblproductgroups`";
 	    		$result = mysql_query($query);
@@ -1006,9 +1006,6 @@ function ezchimp_output($vars) {
                     }
                     if ($debug > 0) {
                         logActivity("ezchimp_output: activelist - " . print_r($lists, true));
-                    }
-                    else {
-                        $activelists = array();
                     }
 
                     if (empty($lists)) {
@@ -1098,21 +1095,14 @@ function ezchimp_output($vars) {
                         }
                         echo '<br /><h2>'.$LANG['product_interest_grouping'].'</h2><p>'.$LANG['product_interest_grouping_desc'].'</p>';
                         if (!empty($_POST)) {
-                            if ($saved && $saved1) {
-                                echo '<div class="infobox"><strong>'.$LANG['saved'].'</strong><br>'.$LANG['saved_desc'].'</div>';
-                            }
-                            else if($saved) {
-                                echo '<div class="infobox"><strong>'.$LANG['saved'].'</strong><br>'.$LANG['saved_desc'].'</div>';
-                            }
-                            else if ($saved1) {
+                            if ($saved || $saved1) {
                                 echo '<div class="infobox"><strong>'.$LANG['saved'].'</strong><br>'.$LANG['saved_desc'].'</div>';
                             } else {
                                 echo '<div class="errorbox"><strong>'.$LANG['save_failed'].'</strong><br>'.$LANG['save_failed_desc'].'</div>';
                             }
-                            if($flag)
-                            {
+                            if ($flag) {
                                 if ($debug > 0) {
-                                    logActivity("ezchimp_output: common grps " );
+                                    logActivity("ezchimp_output: common groups" );
                                 }
                                 echo '<div class="infobox"><strong>'.$LANG['common select'].'</strong></div>';
                             }
@@ -1139,9 +1129,15 @@ function ezchimp_output($vars) {
                         foreach ($productgroups as $productgroup) {
                             echo '
 	<tr>
-		<td align="center" width="10%" class="fieldlabel">'.$productgroup.'</td>
-                        <td width="10%" class="fieldarea">';
-                        echo '<select id="grouping1" multiple="multiple" name="groupings1[]">';
+		<td align="center" width="10%" class="fieldlabel">';
+                            if ('Domains' == $productgroup) {
+                                echo $LANG['Domains'];
+                            } else {
+                                echo $productgroup;
+                            }
+                            echo '</td>
+                        <td width="10%" class="fieldarea">
+                        <select class="grouping1" multiple="multiple" name="groupings1[]">';
                         foreach ($lists as $list) {
                             $no_groups = true;
                             foreach ($list['groupings'] as $maingroup) {
@@ -1156,8 +1152,7 @@ function ezchimp_output($vars) {
                                     echo ' selected="selected"';
                                 }
                                 echo '> '.$list['groupings'].'</option>';
-                            }
-                            else{
+                            } else {
                                 foreach ($list['groupings'] as $maingroup => $groups) {
                                     foreach ($groups as $group) {
                                         echo '<option value="'.$productgroup.'^:'.$list['id'].'^:'.$maingroup.'^:'.$group.'"';
@@ -1169,10 +1164,10 @@ function ezchimp_output($vars) {
                                 }
                             }
                         }
-                        echo ' </select>';
-                        echo '</td>
+                        echo '</select>
+                        </td>
                         <td width="10%" class="fieldarea">';
-                            echo '<select id="groupings" multiple="multiple" name="groupings[]">';
+                            echo '<select class="groupings" multiple="multiple" name="groupings[]">';
                             foreach ($lists as $list) {
                                 $no_groups = true;
                                 foreach ($list['groupings'] as $maingroup) {
@@ -1205,8 +1200,6 @@ function ezchimp_output($vars) {
                         echo '</td>
 	</tr>
 </table><p align="center"><input type="submit" value="'.$LANG['save'].'" class="ui-button ui-widget ui-state-default ui-corner-all" role="button" aria-disabled="false"></p></form>';
-
-
                     }
                 }
 	    		break;
