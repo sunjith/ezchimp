@@ -16,7 +16,7 @@ build another similar WHMCS module or MailChimp integration for another software
 Please send your fixes, updates, modifications (as patch if possible), suggestions and ideas to ezchimp@admod.com
 to be included in the distribution so that everyone can benefit from it. And it would be easy for you to
 follow ezchimp updates as you won't have to apply your modifications to each later release of ezchimp.
-Also we shall include your name and domain/page (if any) in CREDITS section below.
+Also we shall include your name and website URL (if any) in CREDITS section below.
 
 
 CREDITS:
