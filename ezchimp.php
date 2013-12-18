@@ -959,7 +959,7 @@ function ezchimp_output($vars) {
 	    				logActivity("ezchimp_output: listnames - ".print_r($listnames, true));
 	    			}
 	    			$value = serialize($listnames);
-	    			$query = "REPLACE INTO `mod_ezchimp` (`setting`, `value`) VALUES ('listnames', '$value')";
+	    			$query = "REPLACE INTO `mod_ezchimp` (`setting`, `value`) VALUES ('listnames', '".mysql_real_escape_string($value)."')";
 	    			$result = mysql_query($query);
 	    			echo '
 	</tr>
