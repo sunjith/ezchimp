@@ -970,25 +970,29 @@ function ezchimp_hook_client_edit($vars) {
     if (('on' == $settings['subscribe_contacts']) && ('on' == _ezchimp_get_client_subscribe_contacts($client_id)) && ('Active' == $status)) {
         while ($contact = mysql_fetch_assoc($result)) {
             foreach ($subscriptions as $subscription) {
-                if (isset($subscription['unsubscribe'])) {
-                    _ezchimp_mailchimp_unsubscribe($subscription, $contact['email']);
-                    if ($debug > 1) {
-                        logActivity("ezchimp_hook_client_edit: unsubscribe contact - ".$contact['email'].", ".$subscription['list']);
-                    }
-                } else {
-                    _ezchimp_mailchimp_subscribe($subscription, $contact['firstname'], $contact['lastname'], $contact['email'], $email_type);
-                    if ($debug > 1) {
-                        logActivity("ezchimp_hook_client_edit: subscribe contact - ".$contact['email'].", ".print_r($subscription, true));
+                if ($contact['email'] != $email) {
+                    if (isset($subscription['unsubscribe'])) {
+                        _ezchimp_mailchimp_unsubscribe($subscription, $contact['email']);
+                        if ($debug > 1) {
+                            logActivity("ezchimp_hook_client_edit: unsubscribe contact - ".$contact['email'].", ".$subscription['list']);
+                        }
+                    } else {
+                        _ezchimp_mailchimp_subscribe($subscription, $contact['firstname'], $contact['lastname'], $contact['email'], $email_type);
+                        if ($debug > 1) {
+                            logActivity("ezchimp_hook_client_edit: subscribe contact - ".$contact['email'].", ".print_r($subscription, true));
+                        }
                     }
                 }
             }
         }
     } else {
         while ($contact = mysql_fetch_assoc($result)) {
-            foreach ($subscriptions as $subscription) {
-                _ezchimp_mailchimp_unsubscribe($subscription, $contact['email']);
-                if ($debug > 1) {
-                    logActivity("ezchimp_hook_client_edit: unsubscribe contact - ".$contact['email'].", ".$subscription['list']);
+            if ($contact['email'] != $email) {
+                foreach ($subscriptions as $subscription) {
+                    _ezchimp_mailchimp_unsubscribe($subscription, $contact['email']);
+                    if ($debug > 1) {
+                        logActivity("ezchimp_hook_client_edit: unsubscribe contact - ".$contact['email'].", ".$subscription['list']);
+                    }
                 }
             }
         }
