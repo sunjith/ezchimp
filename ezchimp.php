@@ -80,7 +80,6 @@ function module_language_init() {
 
 function ezchimp_activate() {
     $ezconf = new EzchimpConf();
-
     $LANG = module_language_init();
 
     # Create table and custom client fields for newsletter
@@ -138,11 +137,10 @@ function ezchimp_activate() {
 
 function ezchimp_deactivate() {
     $ezconf = new EzchimpConf();
-
     $LANG = module_language_init();
 
 	/* Module vars */
-	$config = _ezchimp_config();
+	$config = _ezchimp_config($ezconf);
 	if ($ezconf->debug > 1) {
 		logActivity("ezchimp_deactivate: module config - ".print_r($config, true));
 	}
@@ -242,7 +240,7 @@ function ezchimp_output($vars) {
     $whmcs_version = $row['value'];
     mysql_free_result($result);
 
-	$settings = _ezchimp_settings();
+	$settings = _ezchimp_settings($ezconf);
     if ($ezconf->debug > 0) {
     	logActivity("ezchimp_output: module settings - ".print_r($settings, true));
     }
@@ -411,7 +409,7 @@ function ezchimp_output($vars) {
                 $email_count = count($emails);
                 foreach ($activelists as $listid => $groups) {
                     $params = array('apikey' => $apikey, 'id' => $listid, 'email_address' => $email_addresses);
-                    $memberinfo = _ezchimp_mailchimp_api('listMemberInfo', $params);
+                    $memberinfo = _ezchimp_mailchimp_api('listMemberInfo', $params, $ezconf);
                     if ($ezconf->debug > 4) {
                         logActivity("ezchimp_output: memberinfo - ".print_r($memberinfo, true));
                     }
@@ -617,7 +615,7 @@ function ezchimp_output($vars) {
 					    					}
 					    					/* Update MailChimp */
 											foreach ($subscriptions as $subscription) {
-												_ezchimp_subscribe($vars, $settings, $subscription, $firstname, $lastname, $email, $email_type);
+												_ezchimp_subscribe($vars, $settings, $subscription, $firstname, $lastname, $email, $email_type, $ezconf);
 											}
 							    			if ($ezconf->debug > 2) {
 							    				logActivity("ezchimp_output: subscribed client - $firstname $lastname <$email>");
@@ -638,7 +636,7 @@ function ezchimp_output($vars) {
 								    				$email = $contact['email'];
 								    				$clients[$clientid]['contacts'][$contactid] = $contact;
 													foreach ($subscriptions as $subscription) {
-														_ezchimp_subscribe($vars, $settings, $subscription, $firstname, $lastname, $email, $email_type);
+														_ezchimp_subscribe($vars, $settings, $subscription, $firstname, $lastname, $email, $email_type, $ezconf);
 													}
 													if ($ezconf->debug > 2) {
 														logActivity("ezchimp_output: subscribed contact - $firstname $lastname <$email>");
@@ -719,7 +717,7 @@ function ezchimp_output($vars) {
 	    	case 'lists':
 	    		$lists = $list_names = array();
 	    		$params = array('apikey' => $apikey);
-	    		$lists_result = _ezchimp_mailchimp_api('lists', $params);
+	    		$lists_result = _ezchimp_mailchimp_api('lists', $params, $ezconf);
 	    		if ($ezconf->debug > 3) {
 	    			logActivity("ezchimp_output: lists result - ".print_r($lists_result, true));
 	    		}
@@ -727,7 +725,7 @@ function ezchimp_output($vars) {
 	    			foreach ($lists_result->data as $list) {
 	    				$params['id'] = $list->id;
 	    				$list_groupings = array();
-	    				$maingroups = _ezchimp_mailchimp_api('listInterestGroupings', $params);
+	    				$maingroups = _ezchimp_mailchimp_api('listInterestGroupings', $params, $ezconf);
 	    				if (!empty($maingroups)) {
 	    					foreach ($maingroups as $maingroup) {
 	    						$groups = array();
@@ -822,7 +820,7 @@ function ezchimp_output($vars) {
                                         'id' => $list_id,
                                         'url' => $vars['baseurl']."/ezchimp_webhook.php"
                                     );
-                                    _ezchimp_mailchimp_api('listWebhookDel', $params);
+                                    _ezchimp_mailchimp_api('listWebhookDel', $params, $ezconf);
                                     $removed_webhooks[$list_id] = true;
                                 }
 			    				if (!is_array($maingroups)) {
@@ -877,7 +875,7 @@ function ezchimp_output($vars) {
                                         'id' => $list_id,
                                         'url' => $vars['baseurl']."/ezchimp_webhook.php"
                                     );
-                                    _ezchimp_mailchimp_api('listWebhookDel', $params);
+                                    _ezchimp_mailchimp_api('listWebhookDel', $params, $ezconf);
                                 }
                                 $params = array(
                                     'apikey' => $apikey,
@@ -892,7 +890,7 @@ function ezchimp_output($vars) {
                                                         'campaign' => false
                                                     )
                                 );
-                                if (!_ezchimp_mailchimp_api('listWebhookAdd', $params)) {
+                                if (!_ezchimp_mailchimp_api('listWebhookAdd', $params, $ezconf)) {
                                     $webhooks_failed[] = $list_id;
                                 }
                             }
@@ -984,7 +982,7 @@ function ezchimp_output($vars) {
 	    		} else {
 		    		$lists = $listnames = array();
 		    		$params = array('apikey' => $apikey);
-		    		$lists_result = _ezchimp_mailchimp_api('lists', $params);
+		    		$lists_result = _ezchimp_mailchimp_api('lists', $params, $ezconf);
 		    		if ($ezconf->debug > 3) {
 		    			logActivity("ezchimp_output: lists result - ".print_r($lists_result, true));
 		    		}
@@ -1470,9 +1468,7 @@ function ezchimp_output($vars) {
  * @param string
  * @param string
  */
-function _ezchimp_mailchimp_api($method, $params) {
-    $ezconf = new EzchimpConf();
-
+function _ezchimp_mailchimp_api($method, $params, &$ezconf) {
 	$payload = json_encode($params);
 	$parts = explode('-', $params['apikey']);
 	$dc = $parts[1];
@@ -1495,7 +1491,7 @@ function _ezchimp_mailchimp_api($method, $params) {
 	return json_decode($retval);
 }
 
-function _ezchimp_subscribe($config, $settings, $subscription, $firstname, $lastname, $email, $email_type='html') {
+function _ezchimp_subscribe($config, $settings, $subscription, $firstname, $lastname, $email, $email_type='html', $ezconf) {
 	$merge_vars = array(
         'MERGE0' => $email,
 		'MERGE1' => $firstname,
@@ -1515,15 +1511,13 @@ function _ezchimp_subscribe($config, $settings, $subscription, $firstname, $last
 			'update_existing' => true,
 			'replace_interests' => true,
 			);
-	_ezchimp_mailchimp_api('listSubscribe', $params);
+	_ezchimp_mailchimp_api('listSubscribe', $params, $ezconf);
 }
 
 /**
  * Return ezchimp config
  */
-function _ezchimp_config() {
-    $ezconf = new EzchimpConf();
-
+function _ezchimp_config(&$ezconf) {
 	$config = array();
 	$result = select_query('tbladdonmodules', 'setting, value', array('module' => 'ezchimp'));
 	while ($row = mysql_fetch_assoc($result)) {
@@ -1542,9 +1536,7 @@ function _ezchimp_config() {
 /**
  * Return ezchimp settings
  */
-function _ezchimp_settings() {
-    $ezconf = new EzchimpConf();
-
+function _ezchimp_settings(&$ezconf) {
 	$settings = array();
 	$result = select_query('mod_ezchimp', 'setting, value');
 	while($row = mysql_fetch_assoc($result)) {
