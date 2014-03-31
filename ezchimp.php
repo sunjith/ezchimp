@@ -34,13 +34,15 @@ development.
 
 define('EMAILS_LIMIT', 25);
 
-$debug = 0;
+class EzchimpConf {
+    public $debug = 0;
+}
 
 function ezchimp_config() {
     $configarray = array(
     "name" => "MailChimp newsletter",
     "description" => "Integrates with MailChimp. Supports subscribe/unsubscribe, multiple mailing lists and interest groups, multi-language.", //, synchronization
-    "version" => "1.15",
+    "version" => "1.16",
     "author" => "AdMod Technologies - www.admod.com",
     "language" => "english",
     "fields" => array(
@@ -77,7 +79,7 @@ function module_language_init() {
 }
 
 function ezchimp_activate() {
-	global $debug;
+    $ezconf = new EzchimpConf();
 
     $LANG = module_language_init();
 
@@ -95,7 +97,7 @@ function ezchimp_activate() {
 				'double_optin' => 'on',
 				'default_format' => 'html'
 				);
-	if ($debug > 1) {
+	if ($ezconf->debug > 1) {
 		logActivity("ezchimp_activate: module settings init - ".print_r($settings, true));
 	}
 	foreach ($settings as $setting => $value) {
@@ -135,13 +137,13 @@ function ezchimp_activate() {
 }
 
 function ezchimp_deactivate() {
-	global $debug;
+    $ezconf = new EzchimpConf();
 
     $LANG = module_language_init();
 
 	/* Module vars */
 	$config = _ezchimp_config();
-	if ($debug > 1) {
+	if ($ezconf->debug > 1) {
 		logActivity("ezchimp_deactivate: module config - ".print_r($config, true));
 	}
 
@@ -157,7 +159,7 @@ function ezchimp_deactivate() {
 			$emailformat_fieldid = $row['id'];
 		}
 		mysql_free_result($result);
-		if ($debug > 1) {
+		if ($ezconf->debug > 1) {
 			logActivity("ezchimp_deactivate: emailformat_fieldid - $emailformat_fieldid");
 		}
 		if ($emailformat_fieldid > 0) {
@@ -174,7 +176,7 @@ function ezchimp_deactivate() {
 			$subscribe_contacts_fieldid = $row['id'];
 		}
 		mysql_free_result($result);
-		if ($debug > 1) {
+		if ($ezconf->debug > 1) {
 			logActivity("ezchimp_deactivate: subscribe_contacts_fieldid - $subscribe_contacts_fieldid");
 		}
 		if ($subscribe_contacts_fieldid > 0) {
@@ -191,7 +193,7 @@ function ezchimp_deactivate() {
 			$fieldids[] = $row['id'];
 		}
 		mysql_free_result($result);
-		if ($debug > 1) {
+		if ($ezconf->debug > 1) {
 			logActivity("ezchimp_deactivate: fieldids - ".print_r($fieldids, true));
 		}
 		if (!empty($fieldids)) {
@@ -220,7 +222,7 @@ function ezchimp_upgrade($vars) {
 }
 
 function ezchimp_output($vars) {
-	global $debug;
+    $ezconf = new EzchimpConf();
 
     $modulelink = $vars['modulelink'];
     $version = $vars['version'];
@@ -228,9 +230,9 @@ function ezchimp_output($vars) {
     $LANG = $vars['_lang'];
 
     if (isset($vars['debug'])) {
-    	$debug = intval($vars['debug']);
-    	if ($debug > 0) {
-    		logActivity("ezchimp_output: Debug enabled - $debug");
+    	$ezconf->debug = intval($vars['debug']);
+    	if ($ezconf->debug > 0) {
+    		logActivity("ezchimp_output: Debug enabled - ".$ezconf->debug);
     	}
     }
 
@@ -241,7 +243,7 @@ function ezchimp_output($vars) {
     mysql_free_result($result);
 
 	$settings = _ezchimp_settings();
-    if ($debug > 0) {
+    if ($ezconf->debug > 0) {
     	logActivity("ezchimp_output: module settings - ".print_r($settings, true));
     }
 
@@ -307,7 +309,7 @@ function ezchimp_output($vars) {
                     }
                 }
                 $query = "SELECT count(*) AS `total` $query_from";
-                if ($debug > 4) {
+                if ($ezconf->debug > 4) {
                     logActivity("ezchimp_output: count query - $query");
                 }
                 $result = mysql_query($query);
@@ -315,7 +317,7 @@ function ezchimp_output($vars) {
                 $total = $row['total'];
                 mysql_free_result($result);
                 $pages = ceil($total / EMAILS_LIMIT);
-	    		if ($debug > 3) {
+	    		if ($ezconf->debug > 3) {
 	    			logActivity("ezchimp_output: status - page_number, total, pages : $page_number, $total, $pages");
 	    		}
 
@@ -370,7 +372,7 @@ function ezchimp_output($vars) {
 
     			$activelists = unserialize($settings['activelists']);
 	    		$listnames = unserialize($settings['listnames']);
-    			if ($debug > 2) {
+    			if ($ezconf->debug > 2) {
     				logActivity("ezchimp_output: activelists - ".print_r($activelists, true));
     				logActivity("ezchimp_output: listnames - ".print_r($listnames, true));
     			}
@@ -382,7 +384,7 @@ function ezchimp_output($vars) {
                 } else {
                     $query = "SELECT `cl`.`id` AS `client_id`, `cl`.`firstname` AS `client_firstname`, `cl`.`lastname` AS `client_lastname`, `cl`.`email` AS `client_email` $query_from ORDER BY `client_id` ASC LIMIT $offset, " . EMAILS_LIMIT;
                 }
-	    		if ($debug > 4) {
+	    		if ($ezconf->debug > 4) {
 	    			logActivity("ezchimp_output: query - $query");
 	    		}
 	    		$result = mysql_query($query);
@@ -401,7 +403,7 @@ function ezchimp_output($vars) {
                     }
 	    		}
                 mysql_free_result($result);
-	    		if ($debug > 4) {
+	    		if ($ezconf->debug > 4) {
 	    			logActivity("ezchimp_output: emails - ".print_r($emails, true));
 	    		}
 	    		$email_statuses = array();
@@ -410,7 +412,7 @@ function ezchimp_output($vars) {
                 foreach ($activelists as $listid => $groups) {
                     $params = array('apikey' => $apikey, 'id' => $listid, 'email_address' => $email_addresses);
                     $memberinfo = _ezchimp_mailchimp_api('listMemberInfo', $params);
-                    if ($debug > 4) {
+                    if ($ezconf->debug > 4) {
                         logActivity("ezchimp_output: memberinfo - ".print_r($memberinfo, true));
                     }
                     for ($i = 0; $i < $email_count; $i++) {
@@ -443,7 +445,7 @@ function ezchimp_output($vars) {
                         $email_statuses[$email] = $emails[$email];
                     }
                 }
-                if ($debug > 4) {
+                if ($ezconf->debug > 4) {
                     logActivity("ezchimp_output: email_statuses - ".print_r($email_statuses, true));
                 }
 
@@ -454,7 +456,7 @@ function ezchimp_output($vars) {
                     $ctid[$email] = isset($info['contactid']) ? $info['contactid'] : 0;
                 }
                 array_multisort($clid, SORT_ASC, $ctid, SORT_ASC, $email_statuses);
-                if ($debug > 4) {
+                if ($ezconf->debug > 4) {
                     logActivity("ezchimp_output: sorted email_statuses - ".print_r($email_statuses, true));
                 }
 
@@ -523,7 +525,7 @@ function ezchimp_output($vars) {
 	    		if (!empty($_POST)) {
 	    			if (!empty($_POST['action'])) {
 		    			$action = $_POST['action'];
-		    			if ($debug > 1) {
+		    			if ($ezconf->debug > 1) {
 		    				logActivity("ezchimp_output: tools - $action");
 		    			}
 		    			switch ($action) {
@@ -551,7 +553,7 @@ function ezchimp_output($vars) {
                                     mysql_free_result($result);
 
 					    			$fieldids_str = implode(',', $fieldids);
-					    			if ($debug > 2) {
+					    			if ($ezconf->debug > 2) {
 					    				logActivity("ezchimp_output: fieldids_str - $fieldids_str");
 					    			}
 									$query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` IN ($fieldids_str)";
@@ -561,12 +563,12 @@ function ezchimp_output($vars) {
 										$subscribed[$row['relid']] = 1;
 									}
 									mysql_free_result($result);
-					    			if ($debug > 2) {
+					    			if ($ezconf->debug > 2) {
 					    				logActivity("ezchimp_output: subscribed - ".print_r($subscribed, true));
 					    			}
 
 									$activelists = unserialize($settings['activelists']);
-									if ($debug > 2) {
+									if ($ezconf->debug > 2) {
 										logActivity("ezchimp_output: activelists - ".print_r($activelists, true));
 									}
 
@@ -617,7 +619,7 @@ function ezchimp_output($vars) {
 											foreach ($subscriptions as $subscription) {
 												_ezchimp_subscribe($vars, $settings, $subscription, $firstname, $lastname, $email, $email_type);
 											}
-							    			if ($debug > 2) {
+							    			if ($ezconf->debug > 2) {
 							    				logActivity("ezchimp_output: subscribed client - $firstname $lastname <$email>");
 							    			}
 											if ('on' == $settings['subscribe_contacts']) {
@@ -638,14 +640,14 @@ function ezchimp_output($vars) {
 													foreach ($subscriptions as $subscription) {
 														_ezchimp_subscribe($vars, $settings, $subscription, $firstname, $lastname, $email, $email_type);
 													}
-													if ($debug > 2) {
+													if ($ezconf->debug > 2) {
 														logActivity("ezchimp_output: subscribed contact - $firstname $lastname <$email>");
 													}
 												}
 												mysql_free_result($contact_result);
 											}
 					    				} else {
-							    			if ($debug > 1) {
+							    			if ($ezconf->debug > 1) {
 							    				logActivity("ezchimp_output: already subscribed - $firstname $lastname <$email>");
 							    			}
 					    				}
@@ -686,13 +688,13 @@ function ezchimp_output($vars) {
 					    				echo '
 </table></div>';
 									} else {
-						    			if ($debug > 0) {
+						    			if ($ezconf->debug > 0) {
 						    				logActivity("ezchimp_output: $action - No empty clients");
 						    			}
 						    			echo '<div class="errorbox"><strong>'.$LANG['no_empty_clients'].'</strong></div>';
 									}
 								} else {
-					    			if ($debug > 0) {
+					    			if ($ezconf->debug > 0) {
 					    				logActivity("ezchimp_output: $action - No active lists/groups");
 					    			}
 					    			echo '<div class="errorbox"><strong>'.$LANG['no_active_lists'].'</strong></div>';
@@ -718,7 +720,7 @@ function ezchimp_output($vars) {
 	    		$lists = $list_names = array();
 	    		$params = array('apikey' => $apikey);
 	    		$lists_result = _ezchimp_mailchimp_api('lists', $params);
-	    		if ($debug > 3) {
+	    		if ($ezconf->debug > 3) {
 	    			logActivity("ezchimp_output: lists result - ".print_r($lists_result, true));
 	    		}
 	    		if (!empty($lists_result->data)) {
@@ -739,7 +741,7 @@ function ezchimp_output($vars) {
                         $list_names[$list->id] = $list->name;
 	    			}
 	    		}
-	    		if ($debug > 2) {
+	    		if ($ezconf->debug > 2) {
 	    			logActivity("ezchimp_output: lists - ".print_r($lists, true));
 	    		}
 
@@ -749,7 +751,7 @@ function ezchimp_output($vars) {
 	    			$showorder = isset($settings['showorder']) ? $settings['showorder'] : '';
 	    			if (!empty($settings['activelists'])) {
 	    				$activelists = unserialize($settings['activelists']);
-				    	if ($debug > 1) {
+				    	if ($ezconf->debug > 1) {
 				    		logActivity("ezchimp_output: activelists - ".print_r($activelists, true));
 				    	}
 	    			} else {
@@ -759,7 +761,7 @@ function ezchimp_output($vars) {
 		    			$saved = false;
                         $removed_webhooks = array();
 				    	if (!empty($_POST['activelists'])) {
-					    	if ($debug > 4) {
+					    	if ($ezconf->debug > 4) {
 					    		logActivity("ezchimp_output: POST - ".print_r($_POST, true));
 					    	}
 				    		$activelists_update = array();
@@ -797,7 +799,7 @@ function ezchimp_output($vars) {
 				    						$custom_field_id = $row['id'];
 				    						$query = "UPDATE `tblcustomfields` SET `fieldname`='".mysql_real_escape_string($_ADDONLANG['subscribe_to'].$alias)."' WHERE `id`=$custom_field_id";
 				    						mysql_query($query);
-									    	if ($debug > 1) {
+									    	if ($ezconf->debug > 1) {
 									    		logActivity("ezchimp_output: alias update - ".$row['fieldname']." -> ".$_ADDONLANG['subscribe_to'].$alias);
 									    	}
 				    					}
@@ -808,7 +810,7 @@ function ezchimp_output($vars) {
 				    				}
 				    			}
 				    		}
-					    	if ($debug > 0) {
+					    	if ($ezconf->debug > 0) {
 					    		logActivity("ezchimp_output: activelists update - ".print_r($activelists_update, true));
 					    	}
 			    			/* Remove deactivated lists and their subscriptions */
@@ -837,7 +839,7 @@ function ezchimp_output($vars) {
 			    							$query = "DELETE FROM `tblcustomfields` WHERE `id`=$custom_field_id";
 			    							mysql_query($query);
 					    				}
-			    						if ($debug > 1) {
+			    						if ($ezconf->debug > 1) {
 			    							logActivity("ezchimp_output: delete active - $list_str");
 			    						}
 			    					}
@@ -856,7 +858,7 @@ function ezchimp_output($vars) {
 					    							$query = "DELETE FROM `tblcustomfields` WHERE `id`=$custom_field_id";
 					    							mysql_query($query);
 							    				}
-					    						if ($debug > 1) {
+					    						if ($ezconf->debug > 1) {
 					    							logActivity("ezchimp_output: delete active - $list_str");
 					    						}
 				    						}
@@ -955,7 +957,7 @@ function ezchimp_output($vars) {
 	    					}
 	    				}
 	    			}
-	    			if ($debug > 1) {
+	    			if ($ezconf->debug > 1) {
 	    				logActivity("ezchimp_output: listnames - ".print_r($listnames, true));
 	    			}
 	    			$value = serialize($listnames);
@@ -983,7 +985,7 @@ function ezchimp_output($vars) {
 		    		$lists = $listnames = array();
 		    		$params = array('apikey' => $apikey);
 		    		$lists_result = _ezchimp_mailchimp_api('lists', $params);
-		    		if ($debug > 3) {
+		    		if ($ezconf->debug > 3) {
 		    			logActivity("ezchimp_output: lists result - ".print_r($lists_result, true));
 		    		}
 
@@ -998,13 +1000,13 @@ function ezchimp_output($vars) {
                                         }
                                     }
                                 }
-                                if ($debug > 0) {
+                                if ($ezconf->debug > 0) {
                                     logActivity("ezchimp_output: listid - " . print_r($listid, true));
                                 }
                             }
                         }
                     }
-                    if ($debug > 0) {
+                    if ($ezconf->debug > 0) {
                         logActivity("ezchimp_output: activelist - " . print_r($lists, true));
                     }
 
@@ -1013,7 +1015,7 @@ function ezchimp_output($vars) {
                     } else {
                         if (!empty($_POST)) {
                             $flag=false;
-                            if ($debug > 4) {
+                            if ($ezconf->debug > 4) {
                                 logActivity("ezchimp_output: POST - " . print_r($_POST, true));
                             }
                             $groupings = $groupings1 = array();
@@ -1028,7 +1030,7 @@ function ezchimp_output($vars) {
                                     }
                                 }
                             }
-                            if ($debug > 0) {
+                            if ($ezconf->debug > 0) {
                                 logActivity("ezchimp_output: groupings update - " . print_r($groupings, true));
                             }
 
@@ -1049,7 +1051,7 @@ function ezchimp_output($vars) {
                                            foreach($l2 as $m2){
                                              if(!(is_array($m2))){
                                                if(!(strcmp($m1,$m2))){
-                                                   if ($debug > 0) {
+                                                   if ($ezconf->debug > 0) {
                                                        logActivity("ezchimp_output: common grps1 - " . print_r($m1, true));
                                                    }
                                                    $flag = true;
@@ -1064,7 +1066,7 @@ function ezchimp_output($vars) {
                                                        foreach($g2 as $n2){
                                                            if(!(strcmp($n1,$n2))){
                                                                $flag = true;
-                                                               if ($debug > 0) {
+                                                               if ($ezconf->debug > 0) {
                                                                    logActivity("ezchimp_output: common grps2 - " . print_r($n1, true));
                                                                }
                                                            }
@@ -1081,7 +1083,7 @@ function ezchimp_output($vars) {
                             if ($result = mysql_query($query)) {
                                 $saved = true;
                             }
-                            if ($debug > 0) {
+                            if ($ezconf->debug > 0) {
                                 logActivity("ezchimp_output: unsubscribed update- " . print_r($groupings1, true));
                             }
                             $value = serialize($groupings1);
@@ -1101,7 +1103,7 @@ function ezchimp_output($vars) {
                                 echo '<div class="errorbox"><strong>'.$LANG['save_failed'].'</strong><br>'.$LANG['save_failed_desc'].'</div>';
                             }
                             if ($flag) {
-                                if ($debug > 0) {
+                                if ($ezconf->debug > 0) {
                                     logActivity("ezchimp_output: common groups" );
                                 }
                                 echo '<div class="infobox"><strong>'.$LANG['common select'].'</strong></div>';
@@ -1110,7 +1112,7 @@ function ezchimp_output($vars) {
                             $groupings = unserialize($settings['groupings']);
                             $groupings1= unserialize($settings['unsubscribe_groupings']);
                         }
-                        if ($debug > 0) {
+                        if ($ezconf->debug > 0) {
                             logActivity("ezchimp_output: groupings - ".print_r($groupings, true));
                             logActivity("ezchimp_output: groupings1 - ".print_r($groupings1, true));
                         }
@@ -1312,7 +1314,7 @@ function ezchimp_output($vars) {
 			    		$settings_update['default_subscribe_contact'] = '';
 			    	}
 
-			    	if ($debug > 0) {
+			    	if ($ezconf->debug > 0) {
 			    		logActivity("ezchimp_output: module settings update - ".print_r($settings_update, true));
 			    	}
 
@@ -1469,7 +1471,7 @@ function ezchimp_output($vars) {
  * @param string
  */
 function _ezchimp_mailchimp_api($method, $params) {
-	global $debug;
+    $ezconf = new EzchimpConf();
 
 	$payload = json_encode($params);
 	$parts = explode('-', $params['apikey']);
@@ -1487,15 +1489,13 @@ function _ezchimp_mailchimp_api($method, $params) {
 	$retval = curl_exec($ch);
 	curl_close($ch);
 
-	if ($debug > 0) {
+	if ($ezconf->debug > 0) {
 		logActivity("_ezchimp_mailchimp_api: URL - $submit_url, Payload - ".htmlentities($payload).", Response - ".htmlentities($retval));
 	}
 	return json_decode($retval);
 }
 
 function _ezchimp_subscribe($config, $settings, $subscription, $firstname, $lastname, $email, $email_type='html') {
-	global $debug;
-
 	$merge_vars = array(
         'MERGE0' => $email,
 		'MERGE1' => $firstname,
@@ -1522,7 +1522,7 @@ function _ezchimp_subscribe($config, $settings, $subscription, $firstname, $last
  * Return ezchimp config
  */
 function _ezchimp_config() {
-	global $debug;
+    $ezconf = new EzchimpConf();
 
 	$config = array();
 	$result = select_query('tbladdonmodules', 'setting, value', array('module' => 'ezchimp'));
@@ -1531,9 +1531,9 @@ function _ezchimp_config() {
 	}
 	mysql_free_result($result);
 	if (isset($config['debug'])) {
-		$debug = intval($config['debug']);
+		$ezconf->debug = intval($config['debug']);
 	}
-	if ($debug > 0) {
+	if ($ezconf->debug > 0) {
 		logActivity("_ezchimp_config: module config - ".print_r($config, true));
 	}
 	return $config;
@@ -1543,7 +1543,7 @@ function _ezchimp_config() {
  * Return ezchimp settings
  */
 function _ezchimp_settings() {
-	global $debug;
+    $ezconf = new EzchimpConf();
 
 	$settings = array();
 	$result = select_query('mod_ezchimp', 'setting, value');
@@ -1551,10 +1551,9 @@ function _ezchimp_settings() {
 		$settings[$row['setting']] = $row['value'];
 	}
 	mysql_free_result($result);
-	if ($debug > 0) {
+	if ($ezconf->debug > 0) {
 		logActivity("_ezchimp_settings: ".print_r($settings, true));
 	}
 	return $settings;
 }
 
-?>
