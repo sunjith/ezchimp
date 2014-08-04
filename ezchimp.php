@@ -698,6 +698,229 @@ function ezchimp_output($vars) {
 					    			echo '<div class="errorbox"><strong>'.$LANG['no_active_lists'].'</strong></div>';
 								}
 		    					break;
+
+                            case 'reset_to_autosubscribe':
+                                $fieldids = array();
+                                $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'tickbox', 'sortorder' => 46306));
+                                while ($row = mysql_fetch_assoc($result)) {
+                                    $fieldids[] = $row['id'];
+                                }
+                                mysql_free_result($result);
+
+                                if (!empty($fieldids)) {
+                                    $subscribe_contacts_fieldid = 0;
+                                    $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'tickbox', 'sortorder' => 46309));
+                                    if ($row = mysql_fetch_assoc($result)) {
+                                        $subscribe_contacts_fieldid = $row['id'];
+                                    }
+                                    mysql_free_result($result);
+
+                                    $default_format_fieldid = 0;
+                                    $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'dropdown', 'sortorder' => 46307));
+                                    if ($row = mysql_fetch_assoc($result)) {
+                                        $default_format_fieldid = $row['id'];
+                                    }
+                                    mysql_free_result($result);
+                                    $email_type = $settings['default_format'];
+                                    /*$subscriptions = array();
+                                    foreach ($activelists as $list => $groups) {
+                                        if (!is_array($groups)) {
+                                            $subscriptions[] = array('list' => $list);
+                                        } else {
+                                            $subscription_groupings = array();
+                                            foreach ($groups as $maingroup => $groups) {
+                                                $groups_str = '';
+                                                foreach ($groups as $group => $alias) {
+                                                    $groups_str .= str_replace(',', '\\,', $group).',';
+                                                }
+                                                if ('' != $groups_str) {
+                                                    $groups_str = substr($groups_str, 0, -1);
+                                                    $subscription_groupings[] = array('name' => $maingroup, 'groups' => $groups_str);
+                                                }
+                                            }
+                                            if (!empty($subscription_groupings)) {
+                                                $subscriptions[] = array('list' => $list, 'grouping' => $subscription_groupings);
+                                            }
+                                        }
+                                    }*/
+                                    $clients = array();
+                                    $result = select_query('tblclients', 'id, firstname, lastname, email', array('status' => 'Active'));
+                                    $grouplists = unserialize($settings['groupings']);
+                                    $unsubscribe_grouplists = unserialize($settings['unsubscribe_groupings']);
+
+                                    if ($ezconf->debug > 0) {
+                                        logActivity("ezchimp_output: grouplists - " . print_r($grouplists, true));
+                                    }
+                                    if ($ezconf->debug > 0) {
+                                        logActivity("ezchimp_output: unsubscribe_grouplists - " . print_r($unsubscribe_grouplists, true));
+                                    }
+                                    while ($row = mysql_fetch_assoc($result)) {
+                                        $clientid = $row['id'];
+                                        $firstname = $row['firstname'];
+                                        $lastname = $row['lastname'];
+                                        $email = $row['email'];
+
+                                        if ($default_format_fieldid > 0) {
+                                            /* Set default format for client */
+                                            $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($default_format_fieldid, $clientid, 'on')";
+                                            mysql_query($query);
+                                        }
+
+                                        $groupunsubscribe = array();
+                                        $groupsubscribe = array();
+                                        $unsubscribegroupids = array();
+                                        $subscribegroupids = array();
+                                        $client_packageid[$clientid] = array();
+                                        $query1 = "SELECT DISTINCT `gid` FROM `tblproducts` WHERE `id` IN (SELECT DISTINCT `packageid` FROM `tblhosting` WHERE `userid` = ".$clientid.")";
+                                        $group_result = mysql_query($query1);
+                                        while ($row1 = mysql_fetch_assoc($group_result)) {
+                                            $result2 = select_query('tblproductgroups', 'name', array('id' => $row1['gid']));
+                                            if ($row2 = mysql_fetch_assoc($result2)) {
+                                                foreach ($unsubscribe_grouplists as $list => $groups) {
+                                                    if(strcmp($list,$row2['name'] == 0)){
+                                                        foreach ($groups as $groupid => $group_id) {
+                                                            if (!in_array($group_id, $unsubscribegroupids)){
+                                                                $groupunsubscribe[] = array('list' => $group_id, 'grouping' => array());
+                                                            }
+                                                            $unsubscribegroupids[] = $group_id;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            mysql_free_result($result2);
+                                        }
+                                        mysql_free_result($group_result);
+                                        if ($ezconf->debug > 0) {
+                                            logActivity("ezchimp_output: unsubscribe_grouplists ids- " . print_r($groupunsubscribe, true));
+                                        }
+                                        $group_result = mysql_query($query1);
+                                        while ($row1 = mysql_fetch_assoc($group_result)) {
+                                            $result2 = select_query('tblproductgroups', 'name', array('id' => $row1['gid']));
+                                            if ($row2 = mysql_fetch_assoc($result2)) {
+                                                foreach ($grouplists as $list => $groups) {
+                                                    if(strcmp($list,$row2['name'] == 0)){
+                                                        foreach ($groups as $groupid => $group_id) {
+                                                            if(in_array($group_id, $unsubscribegroupids)){
+                                                                $key = array_search($group_id, $unsubscribegroupids);
+                                                                unset($groupunsubscribe[$key]);
+                                                            }
+                                                            if (!in_array($group_id, $subscribegroupids)){
+                                                                $groupsubscribe[] = array('list' => $group_id);
+                                                            }
+                                                            $subscribegroupids[] = $group_id;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            mysql_free_result($result2);
+                                        }
+                                        mysql_free_result($group_result);
+                                        if(!empty($groupunsubscribe)){
+                                            $field_id_unsubscribed = array();
+                                            foreach ($groupunsubscribe as $subscription) {
+                                                $query_fid = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldoptions`='" . mysql_real_escape_string($subscription['list']) . "'";
+                                                $result_fid = mysql_query($query_fid);
+                                                $row_fid = mysql_fetch_assoc($result_fid);
+                                                $field_id = $row_fid['id'];
+                                                mysql_free_result($result_fid);
+                                                $query_update = "UPDATE `tblcustomfieldsvalues` SET `value`='' where `relid`=$clientid AND `fieldid` = $field_id";
+                                                $field_id_unsubscribed[] = $field_id;
+                                                mysql_query($query_update);
+                                                _ezchimp_unsubscribe($subscription, $email,$ezconf,$vars);
+                                            }
+                                        }
+                                        if(!empty($groupsubscribe)){
+                                            $clients[$clientid]['self'] = $row;
+                                            foreach ($fieldids as $fieldid) {
+                                                if(!in_array($fieldid,$field_id_unsubscribed)){
+                                                    $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($fieldid, $clientid, 'on')";
+                                                    mysql_query($query);
+                                                }
+                                            }
+                                            logActivity("ezchimp_output: ezconf values - " . print_r($ezconf, true));
+                                            foreach ($groupsubscribe as $subscription) {
+                                                _ezchimp_subscribe($vars, $settings, $subscription, $firstname, $lastname, $email, $email_type, $ezconf);
+                                            }
+                                            if ($ezconf->debug > 2) {
+                                                logActivity("ezchimp_output: subscribed client - $firstname $lastname <$email>");
+                                            }
+                                            if ('on' == $settings['subscribe_contacts']) {
+                                                if ($subscribe_contacts_fieldid > 0) {
+                                                    /* Set subscribe contacts for client */
+                                                    $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($subscribe_contacts_fieldid, $clientid, 'on')";
+                                                    mysql_query($query);
+                                                }
+                                                $query = "SELECT `id`, `firstname`, `lastname`, `email` FROM `tblcontacts` WHERE `userid`=$clientid";
+                                                $contact_result = mysql_query($query);
+                                                while ($contact = mysql_fetch_assoc($contact_result)) {
+                                                    $contactid = $contact['id'];
+                                                    $firstname = $contact['firstname'];
+                                                    $lastname = $contact['lastname'];
+                                                    $email = $contact['email'];
+                                                    $clients[$clientid]['contacts'][$contactid] = $contact;
+                                                    foreach ($groupsubscribe as $subscription) {
+                                                        _ezchimp_subscribe($vars, $settings, $subscription, $firstname, $lastname, $email, $email_type, $ezconf);
+                                                    }
+                                                    if ($ezconf->debug > 2) {
+                                                        logActivity("ezchimp_output: subscribed contact - $firstname $lastname <$email>");
+                                                    }
+                                                }
+                                                mysql_free_result($contact_result);
+                                            }
+                                        }
+                                    }
+                                    mysql_free_result($result);
+                                    if (!empty($clients)) {
+                                        echo '<div class="infobox"><strong>'.$LANG['subscriptions_reset'].'</strong></div>';
+                                        echo '<div class="tablebg"><table class="datatable" width="100%" border="0" cellspacing="1" cellpadding="3">
+	<tr>
+		<th>'.$LANG['client_id'].'</th>
+		<th>'.$LANG['contact_id'].'</th>
+		<th>'.$LANG['firstname'].'</th>
+		<th>'.$LANG['lastname'].'</th>
+		<th>'.$LANG['email'].'</th>
+	</tr>';
+                                        foreach ($clients as $id => $details) {
+                                            echo '
+	<tr>
+		<td><a href="clientssummary.php?userid='.$id.'">'.$id.'</a></td>
+		<td>-</td>
+		<td><a href="clientssummary.php?userid='.$id.'">'.$details['self']['firstname'].'</a></td>
+		<td><a href="clientssummary.php?userid='.$id.'">'.$details['self']['lastname'].'</a></td>
+		<td><a href="mailto:'.$details['self']['email'].'">'.$details['self']['email'].'</a></td>
+	</tr>';
+                                            if (!empty($details['contacts'])) {
+                                                foreach ($details['contacts'] as $ctid => $contact) {
+                                                    echo '
+	<tr>
+		<td><a href="clientssummary.php?userid='.$id.'">'.$id.'</a></td>
+		<td><a href="clientscontacts.php?userid='.$id.'&contactid='.$ctid.'">'.$ctid.'</a></td>
+		<td><a href="clientscontacts.php?userid='.$id.'&contactid='.$ctid.'">'.$contact['firstname'].'</a></td>
+		<td><a href="clientscontacts.php?userid='.$id.'&contactid='.$ctid.'">'.$contact['lastname'].'</a></td>
+		<td><a href="mailto:'.$contact['email'].'">'.$contact['email'].'</a></td>
+	</tr>';
+                                                }
+                                            }
+                                        }
+                                        echo '
+</table></div>';
+                                    } else {
+                                        if ($ezconf->debug > 0) {
+                                            logActivity("ezchimp_output: $action - No clients");
+                                        }
+                                        echo '<div class="errorbox"><strong>'.$LANG['no_clients'].'</strong></div>';
+                                    }
+                                } else {
+                                    if ($ezconf->debug > 0) {
+                                        logActivity("ezchimp_output: $action - No active lists/groups");
+                                    }
+                                    echo '<div class="errorbox"><strong>'.$LANG['no_active_lists'].'</strong></div>';
+                                }
+                                break;
+
+                            default:
+                                echo '<div class="errorbox"><strong>'.$LANG['invalid_action'].'</strong></div>';
+                                break;
 		    			}
 	    			} else {
 	    				echo '<div class="errorbox"><strong>'.$LANG['no_action'].'</strong></div>';
@@ -711,9 +934,16 @@ function ezchimp_output($vars) {
 		</td>
 		<td class="fieldarea">'.$LANG['subscribe_empty_desc'].'</td>
 	</tr>
+	<tr>
+		<td class="fieldlabel">
+			<input type="radio" name="action" value="reset_to_autosubscribe" class="ui-button ui-widget ui-state-default ui-corner-all" role="button" aria-disabled="false">
+		</td>
+		<td class="fieldarea">'.$LANG['reset_to_autosubscribe_desc'].'</td>
+	</tr>
 </table><p align="center"><input type="submit" value="'.$LANG['execute'].'" class="ui-button ui-widget ui-state-default ui-corner-all" role="button" aria-disabled="false"></p></form>';
 	    		}
 	    		break;
+
 	    	case 'lists':
 	    		$lists = $list_names = array();
 	    		$params = array('apikey' => $apikey);
@@ -1490,6 +1720,20 @@ function _ezchimp_mailchimp_api($method, $params, &$ezconf) {
 	}
 	return json_decode($retval);
 }
+
+
+function _ezchimp_unsubscribe($subscription, $email, &$ezvars,$config) {
+    $params = array(
+        'id' => $subscription['list'],
+        'email_address' => $email,
+        'apikey' => $config['apikey'],
+        'delete_member' => (isset($ezvars->settings['delete_member']) && ('on' == $ezvars->settings['delete_member'])) ? true : false,
+        'send_goodbye' => (isset($ezvars->settings['send_goodbye']) && ('on' == $ezvars->settings['send_goodbye'])) ? true : false,
+        'send_notify' => (isset($ezvars->settings['send_notify']) && ('on' == $ezvars->settings['send_notify'])) ? true : false,
+    );
+    _ezchimp_mailchimp_api('listUnsubscribe', $params, $ezvars);
+}
+
 
 function _ezchimp_subscribe($config, $settings, $subscription, $firstname, $lastname, $email, $email_type='html', $ezconf) {
 	$merge_vars = array(
