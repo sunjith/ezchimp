@@ -21,7 +21,7 @@ Also we shall include your name and website URL (if any) in CREDITS section belo
 
 CREDITS:
 -------
-* AdMod Technologies Pvt Ltd. (www.admod.com, www.ezeelogin.com) - Develop, maintain and support ezchimp module
+* AdMod Technologies Pvt Ltd. (www.admod.com, www.ezeelogin.com, www.openstackwiz.com) - Develop, maintain and support ezchimp module
 
 
 CHANGE LOG:
