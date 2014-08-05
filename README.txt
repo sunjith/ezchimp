@@ -27,5 +27,5 @@ CREDITS:
 CHANGE LOG:
 ----------
 
-1.16 - 27 Mar 2014: Remove global variables to make compatible with new WHMCS security improvements
-
+1.18 - 05 Aug 2014: Tool to reset subscriptions as per auto-subscribe settings
+1.16 - 27 Mar 2014: Remove global variables to improve security
