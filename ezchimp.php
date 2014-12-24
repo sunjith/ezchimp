@@ -406,35 +406,42 @@ function ezchimp_output($vars) {
 	    		}
 	    		$email_statuses = array();
                 $email_addresses = array_keys($emails);
-                $email_count = count($emails);
                 foreach ($activelists as $listid => $groups) {
                     $params = array('apikey' => $apikey, 'id' => $listid, 'email_address' => $email_addresses);
                     $memberinfo = _ezchimp_mailchimp_api('listMemberInfo', $params, $ezconf);
                     if ($ezconf->debug > 4) {
-                        logActivity("ezchimp_output: memberinfo - ".print_r($memberinfo, true));
+                        logActivity("ezchimp_output: memberinfo - " . print_r($memberinfo, true));
                     }
-                    for ($i = 0; $i < $email_count; $i++) {
-                        if (isset($memberinfo->data[$i]->email)) {
-                            $email = $memberinfo->data[$i]->email;
-                            if (!isset($email_statuses[$email])) {
-                                $email_statuses[$email] = $emails[$email];
-                            }
-                            $email_statuses[$email]['subscriptions'][$listid] = array();
-                            $email_statuses[$email]['subscriptions'][$listid]['format'] = isset($memberinfo->data[$i]->email_type) ? $memberinfo->data[$i]->email_type : 'NA';
-                            $email_statuses[$email]['subscriptions'][$listid]['status'] = isset($memberinfo->data[$i]->status) ? $memberinfo->data[$i]->status : 'NA';
-                            $email_statuses[$email]['subscriptions'][$listid]['rating'] = isset($memberinfo->data[$i]->member_rating) ? $memberinfo->data[$i]->member_rating.' / 5' : 'NA';
-                            $groups_str = '';
-                            if (!empty($memberinfo->data[$i]->merges->GROUPINGS)) {
-                                foreach ($memberinfo->data[$i]->merges->GROUPINGS as $grouping) {
-                                    if (!empty($grouping->groups)) {
-                                        $groups_str .= $grouping->name.' > '.$grouping->groups.'<br />';
+                    $i = 0;
+                    if (isset($memberinfo->data)) {
+                        foreach ($memberinfo->data as $entry) {
+                            if (isset($entry->email)) {
+                                $email = $entry->email;
+                                if (!isset($email_statuses[$email])) {
+                                    $email_statuses[$email] = $emails[$email];
+                                }
+                                $email_statuses[$email]['subscriptions'][$listid] = array();
+                                $email_statuses[$email]['subscriptions'][$listid]['format'] = isset($entry->email_type) ? $entry->email_type : 'NA';
+                                $email_statuses[$email]['subscriptions'][$listid]['status'] = isset($entry->status) ? $entry->status : 'NA';
+                                $email_statuses[$email]['subscriptions'][$listid]['rating'] = isset($entry->member_rating) ? $entry->member_rating . ' / 5' : 'NA';
+                                $groups_str = '';
+                                if (!empty($entry->merges->GROUPINGS)) {
+                                    foreach ($entry->merges->GROUPINGS as $grouping) {
+                                        if (!empty($grouping->groups)) {
+                                            $groups_str .= $grouping->name . ' > ' . $grouping->groups . '<br />';
+                                        }
                                     }
                                 }
+                                $email_statuses[$email]['subscriptions'][$listid]['groups'] = $groups_str;
+                            } else if (isset($entry->email_address) && isset($entry->error)) {
+                                logActivity("ezchimp_output: status ($listid) - " . $entry->error);
+                            } else {
+                                logActivity("ezchimp_output: status ($listid) - Invalid MemberInfo entry ($i)");
                             }
-                            $email_statuses[$email]['subscriptions'][$listid]['groups'] = $groups_str;
-                        } else {
-                            logActivity("ezchimp_output: status - Invalid MemberInfo ($i)");
+                            $i++;
                         }
+                    } else {
+                        logActivity("ezchimp_output: status ($listid) - Invalid MemberInfo");
                     }
                 }
 
