@@ -434,7 +434,9 @@ function ezchimp_output($vars) {
                                 }
                                 $email_statuses[$email]['subscriptions'][$listid]['groups'] = $groups_str;
                             } else if (isset($entry->email_address) && isset($entry->error)) {
-                                logActivity("ezchimp_output: status ($listid) - " . $entry->error);
+                                if ($ezconf->debug > 1) {
+                                    logActivity("ezchimp_output: status ($listid) - " . $entry->error);
+                                }
                             } else {
                                 logActivity("ezchimp_output: status ($listid) - Invalid MemberInfo entry ($i)");
                             }
