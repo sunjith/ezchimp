@@ -27,5 +27,6 @@ CREDITS:
 CHANGE LOG:
 ----------
 
+1.18 - 24 Dec 2014: Improve debug messages when listing existing subscriptions
 1.17 - 05 Aug 2014: Tool to reset subscriptions as per auto-subscribe settings
 1.16 - 27 Mar 2014: Remove global variables to improve security

@@ -42,7 +42,7 @@ function ezchimp_config() {
     $configarray = array(
     "name" => "MailChimp newsletter",
     "description" => "Integrates with MailChimp. Supports subscribe/unsubscribe, multiple mailing lists and interest groups, multi-language.", //, synchronization
-    "version" => "1.17",
+    "version" => "1.18",
     "author" => "AdMod Technologies - www.admod.com",
     "language" => "english",
     "fields" => array(
