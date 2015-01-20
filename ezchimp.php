@@ -85,7 +85,7 @@ function ezchimp_activate() {
     # Create table and custom client fields for newsletter
 	$query = "CREATE TABLE `mod_ezchimp` (`setting` VARCHAR(30) NOT NULL, `value` TEXT NOT NULL DEFAULT '', PRIMARY KEY (`setting`) )";
 	if (!($result = mysql_query($query))) {
-        return array('status'=>'error','description'=>'Could not create table');
+        return array('status'=>'error','description'=>'Could not create table: '.mysql_error());
     }
 	/* Default settings */
 	$settings = array(
@@ -759,8 +759,6 @@ function ezchimp_output($vars) {
 
                                     if ($ezconf->debug > 0) {
                                         logActivity("ezchimp_output: grouplists - " . print_r($grouplists, true));
-                                    }
-                                    if ($ezconf->debug > 0) {
                                         logActivity("ezchimp_output: unsubscribe_grouplists - " . print_r($unsubscribe_grouplists, true));
                                     }
                                     while ($row = mysql_fetch_assoc($result)) {
@@ -777,54 +775,60 @@ function ezchimp_output($vars) {
 
                                         $groupunsubscribe = array();
                                         $groupsubscribe = array();
-                                        $unsubscribegroupids = array();
-                                        $subscribegroupids = array();
                                         $client_packageid[$clientid] = array();
                                         $query1 = "SELECT DISTINCT `gid` FROM `tblproducts` WHERE `id` IN (SELECT DISTINCT `packageid` FROM `tblhosting` WHERE `userid` = ".$clientid.")";
                                         $group_result = mysql_query($query1);
-                                        while ($row1 = mysql_fetch_assoc($group_result)) {
-                                            $result2 = select_query('tblproductgroups', 'name', array('id' => $row1['gid']));
-                                            if ($row2 = mysql_fetch_assoc($result2)) {
-                                                foreach ($unsubscribe_grouplists as $list => $groups) {
-                                                    if(strcmp($list,$row2['name'] == 0)){
-                                                        foreach ($groups as $groupid => $group_id) {
-                                                            if (!in_array($group_id, $unsubscribegroupids)){
-                                                                $groupunsubscribe[] = array('list' => $group_id, 'grouping' => array());
+                                        if (mysql_num_rows($group_result) > 0) {
+                                            while ($row1 = mysql_fetch_assoc($group_result)) {
+                                                $result2 = select_query('tblproductgroups', 'name', array('id' => $row1['gid']));
+                                                if ($row2 = mysql_fetch_assoc($result2)) {
+                                                    if ($ezconf->debug > 4) {
+                                                        logActivity("ezchimp_output: Product group - " . $row2['name']);
+                                                    }
+                                                    foreach ($unsubscribe_grouplists as $product_group => $group_lists) {
+                                                        if (strcmp($product_group, $row2['name']) == 0) {
+                                                            foreach ($group_lists as $list_id => $interests) {
+                                                                if (!isset($groupunsubscribe[$list_id])) {
+                                                                    $groupunsubscribe[$list_id] = array('list' => $list_id);
+                                                                }
                                                             }
-                                                            $unsubscribegroupids[] = $group_id;
                                                         }
                                                     }
                                                 }
+                                                mysql_free_result($result2);
                                             }
-                                            mysql_free_result($result2);
-                                        }
-                                        mysql_free_result($group_result);
-                                        if ($ezconf->debug > 0) {
-                                            logActivity("ezchimp_output: unsubscribe_grouplists ids- " . print_r($groupunsubscribe, true));
-                                        }
-                                        $group_result = mysql_query($query1);
-                                        while ($row1 = mysql_fetch_assoc($group_result)) {
-                                            $result2 = select_query('tblproductgroups', 'name', array('id' => $row1['gid']));
-                                            if ($row2 = mysql_fetch_assoc($result2)) {
-                                                foreach ($grouplists as $list => $groups) {
-                                                    if(strcmp($list,$row2['name'] == 0)){
-                                                        foreach ($groups as $groupid => $group_id) {
-                                                            if(in_array($group_id, $unsubscribegroupids)){
-                                                                $key = array_search($group_id, $unsubscribegroupids);
-                                                                unset($groupunsubscribe[$key]);
+                                            if (!mysql_data_seek($group_result, 0)) {
+                                                mysql_free_result($group_result);
+                                                $group_result = mysql_query($query1);
+                                            }
+                                            while ($row1 = mysql_fetch_assoc($group_result)) {
+                                                $result2 = select_query('tblproductgroups', 'name', array('id' => $row1['gid']));
+                                                if ($row2 = mysql_fetch_assoc($result2)) {
+                                                    if ($ezconf->debug > 4) {
+                                                        logActivity("ezchimp_output: Product group - " . $row2['name']);
+                                                    }
+                                                    foreach ($grouplists as $product_group => $group_lists) {
+                                                        if (strcmp($product_group, $row2['name']) == 0) {
+                                                            foreach ($group_lists as $list_id => $interests) {
+                                                                if (isset($groupunsubscribe[$list_id])) {
+                                                                    unset($groupunsubscribe[$list_id]);
+                                                                }
+                                                                if (!isset($groupsubscribe[$list_id])) {
+                                                                    $groupsubscribe[$list_id] = array('list' => $list_id, 'grouping' => $interests);
+                                                                }
                                                             }
-                                                            if (!in_array($group_id, $subscribegroupids)){
-                                                                $groupsubscribe[] = array('list' => $group_id);
-                                                            }
-                                                            $subscribegroupids[] = $group_id;
                                                         }
                                                     }
                                                 }
+                                                mysql_free_result($result2);
                                             }
-                                            mysql_free_result($result2);
+                                        }
+                                        if ($ezconf->debug > 3) {
+                                            logActivity("ezchimp_output: groupunsubscribe - " . print_r($groupunsubscribe, true));
+                                            logActivity("ezchimp_output: groupsubscribe - " . print_r($groupsubscribe, true));
                                         }
                                         mysql_free_result($group_result);
-                                        if(!empty($groupunsubscribe)){
+                                        if (!empty($groupunsubscribe)) {
                                             $field_id_unsubscribed = array();
                                             foreach ($groupunsubscribe as $subscription) {
                                                 $query_fid = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldoptions`='" . mysql_real_escape_string($subscription['list']) . "'";
@@ -838,7 +842,7 @@ function ezchimp_output($vars) {
                                                 _ezchimp_unsubscribe($subscription, $email,$ezconf,$vars);
                                             }
                                         }
-                                        if(!empty($groupsubscribe)){
+                                        if (!empty($groupsubscribe)) {
                                             $clients[$clientid]['self'] = $row;
                                             foreach ($fieldids as $fieldid) {
                                                 if(!in_array($fieldid,$field_id_unsubscribed)){
@@ -1229,7 +1233,7 @@ function ezchimp_output($vars) {
                     if (!empty($settings['activelists'])) {
                         $activelists = unserialize($settings['activelists']);
                         if (!empty($activelists)) {
-                            foreach ($activelists as $listid=>$list){
+                            foreach ($activelists as $listid => $list){
                                 if (!empty($lists_result->data)) {
                                     foreach ($lists_result->data as $listname) {
                                         if(!(strcmp($listname->id,$listid))){
@@ -1281,39 +1285,42 @@ function ezchimp_output($vars) {
                                     }
                                 }
                             }
-                            foreach($groupings as $lid => $l1){
-                                foreach($groupings1 as $lid2 => $l2){
-                                   foreach($l1 as $m1){
-                                       if(!(is_array($m1))){
-                                           foreach($l2 as $m2){
-                                             if(!(is_array($m2))){
-                                               if(!(strcmp($m1,$m2))){
-                                                   if ($ezconf->debug > 0) {
-                                                       logActivity("ezchimp_output: common grps1 - " . print_r($m1, true));
-                                                   }
-                                                   $flag = true;
-                                               }
-                                             }
-                                           }
-                                       }
-                                       foreach($l2 as $m2){
-                                           foreach($m1 as $g1){
-                                                foreach($m2 as $g2){
-                                                   foreach($g1 as $n1){
-                                                       foreach($g2 as $n2){
-                                                           if(!(strcmp($n1,$n2))){
-                                                               $flag = true;
-                                                               if ($ezconf->debug > 0) {
-                                                                   logActivity("ezchimp_output: common grps2 - " . print_r($n1, true));
-                                                               }
-                                                           }
-                                                       }
-                                                   }
+                            foreach ($groupings as $lid => $l1) {
+                                foreach ($groupings1 as $lid2 => $l2) {
+                                    foreach ($l1 as $m1) {
+                                        if (!(is_array($m1))) {
+                                            foreach ($l2 as $m2) {
+                                                if (!(is_array($m2))) {
+                                                    if (!(strcmp($m1, $m2))) {
+                                                        if ($ezconf->debug > 0) {
+                                                            logActivity("ezchimp_output: common grps1 - " . print_r($m1, true));
+                                                        }
+                                                        $flag = true;
+                                                    }
                                                 }
-                                           }
-                                       }
-                                   }
+                                            }
+                                        }
+                                        foreach ($l2 as $m2) {
+                                            foreach ($m1 as $g1) {
+                                                foreach ($m2 as $g2) {
+                                                    foreach ($g1 as $n1) {
+                                                        foreach ($g2 as $n2) {
+                                                            if (!(strcmp($n1, $n2))) {
+                                                                $flag = true;
+                                                                if ($ezconf->debug > 0) {
+                                                                    logActivity("ezchimp_output: common grps2 - " . print_r($n1, true));
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
+                            }
+                            if ($ezconf->debug > 0) {
+                                logActivity("ezchimp_output: subscribed update - " . print_r($groupings, true));
                             }
                             $value = serialize($groupings);
                             $query = "REPLACE INTO `mod_ezchimp` (`setting`, `value`) VALUES ('groupings', '$value')";
@@ -1321,7 +1328,7 @@ function ezchimp_output($vars) {
                                 $saved = true;
                             }
                             if ($ezconf->debug > 0) {
-                                logActivity("ezchimp_output: unsubscribed update- " . print_r($groupings1, true));
+                                logActivity("ezchimp_output: unsubscribed update - " . print_r($groupings1, true));
                             }
                             $value = serialize($groupings1);
                             $query = "REPLACE INTO `mod_ezchimp` (`setting`, `value`) VALUES ('unsubscribe_groupings', '$value')";
@@ -1350,8 +1357,8 @@ function ezchimp_output($vars) {
                             $groupings1= unserialize($settings['unsubscribe_groupings']);
                         }
                         if ($ezconf->debug > 0) {
-                            logActivity("ezchimp_output: groupings - ".print_r($groupings, true));
-                            logActivity("ezchimp_output: groupings1 - ".print_r($groupings1, true));
+                            logActivity("ezchimp_output: subscribe groupings - ".print_r($groupings, true));
+                            logActivity("ezchimp_output: unsubscribe groupings - ".print_r($groupings1, true));
                         }
                         echo '<form name="ezchimpGrouing" method="POST"><table class="form" width="100%" border="0" cellspacing="2" cellpadding="3">
 
