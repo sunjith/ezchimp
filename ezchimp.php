@@ -839,7 +839,7 @@ function ezchimp_output($vars) {
                                                 $query_update = "UPDATE `tblcustomfieldsvalues` SET `value`='' where `relid`=$clientid AND `fieldid` = $field_id";
                                                 $field_id_unsubscribed[] = $field_id;
                                                 mysql_query($query_update);
-                                                _ezchimp_unsubscribe($subscription, $email,$ezconf,$vars);
+                                                _ezchimp_unsubscribe($subscription, $email, $ezconf, $vars);
                                             }
                                         }
                                         if (!empty($groupsubscribe)) {
