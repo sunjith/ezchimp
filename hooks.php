@@ -88,7 +88,6 @@ function _ezchimp_call_mailchimp_api($method, $params, &$ezvars) {
         logActivity("_ezchimp_call_mailchimp_api: URL - $submit_url, Payload - ".htmlentities($payload).", Response - ".htmlentities($retval));
     }
     return json_decode($retval);
-
 }
 
 /**
@@ -122,8 +121,6 @@ function ezchimp_hook_order($vars)
 
     if ($ezvars->debug > 0) {
         logActivity("ezchimp_hook_order: groupings - " . print_r($groupings, true));
-    }
-    if ($ezvars->debug > 0) {
         logActivity("ezchimp_hook_order: groupings1 - " . print_r($groupings1, true));
     }
     /* Check ordered domains if domains grouping available */
@@ -133,6 +130,7 @@ function ezchimp_hook_order($vars)
             $productgroup_names['Domains'] = 1;
             $client_id = $domain['userid'];
         }
+        mysql_free_result($result_d);
     }
     /* Check the ordered modules */
     $result1 = select_query('tblhosting', 'userid, packageid', array('orderid' => $order_id));
@@ -180,49 +178,6 @@ function ezchimp_hook_order($vars)
                             if ($ezvars->debug > 0) {
                                 logActivity("ezchimp_hook_order: subscription group1 - ".print_r($list_groupings, true));
                             }
-                            foreach ($list_groupings as $maingroups => $groups) {
-                                foreach ($groups as $grps) {
-                                    $query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldname`='" . mysql_real_escape_string($grps) . "'";
-                                    $result = mysql_query($query);
-                                    $row = mysql_fetch_assoc($result);
-                                    $field_id = $row['id'];
-                                    if ($ezvars->debug > 0) {
-                                        logActivity("ezchimp_hook_order: subscription field1 - " . print_r($row['id'], true));
-                                    }
-                                    mysql_free_result($result);
-                                    $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`='on'";
-                                    $result = mysql_query($query);
-                                    $subscribed1 = array();
-                                    while ($row = mysql_fetch_assoc($result)) {
-                                        $subscribed1[$row['relid']] = 1;
-                                    }
-                                    mysql_free_result($result);
-                                    $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`=''";
-                                    $result = mysql_query($query);
-                                    $subscribed2 = array();
-                                    while ($row = mysql_fetch_assoc($result)) {
-                                        $subscribed2[$row['relid']] = 1;
-                                    }
-                                    mysql_free_result($result);
-                                    if (isset($subscribed2[$client_id])) {
-                                        if ($ezvars->debug > 2) {
-                                            logActivity("ezchimp_output: subscribion update1 - ");
-                                        }
-                                        $query = "UPDATE `tblcustomfieldsvalues` SET `value`='on' where `relid`=$client_id AND `fieldid`=$field_id";
-                                        mysql_query($query);
-                                    } else if (!isset($subscribed1[$client_id])) {
-                                        if ($ezvars->debug > 2) {
-                                            logActivity("ezchimp_output: subscribed insert1 - " . print_r($subscribed1, true));
-                                        }
-                                        $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($field_id, $client_id, 'on')";
-                                        mysql_query($query);
-                                    } else {
-                                        if ($ezvars->debug > 2) {
-                                            logActivity("ezchimp_output: list subscribed  - " );
-                                        }
-                                    }
-                                }
-                            }
                             if (!(is_array($list_groupings))) {
                                 if ($ezvars->debug > 0) {
                                     logActivity("ezchimp_hook_order: empty main group - ".print_r($subscriptions, true));
@@ -251,22 +206,65 @@ function ezchimp_hook_order($vars)
                                 mysql_free_result($result);
                                 if (isset($subscribed2[$client_id])) {
                                     if ($ezvars->debug > 2) {
-                                        logActivity("ezchimp_output: subscribion update3 - ");
+                                        logActivity("ezchimp_hook_order: subscription update3");
                                     }
                                     $query = "UPDATE `tblcustomfieldsvalues` SET `value`='on' where `relid`=$client_id AND `fieldid`=$field_id";
                                     mysql_query($query);
                                 } else if (!isset($subscribed1[$client_id])) {
                                     if ($ezvars->debug > 2) {
-                                        logActivity("ezchimp_output: subscribed insert3 - " . print_r($subscribed1, true));
+                                        logActivity("ezchimp_hook_order: subscribed insert3 - " . print_r($subscribed1, true));
                                     }
                                     $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($field_id, $client_id, 'on')";
                                     mysql_query($query);
                                 } else {
                                     if ($ezvars->debug > 2) {
-                                        logActivity("ezchimp_output: list subscribed3  - " );
+                                        logActivity("ezchimp_hook_order: list subscribed3");
                                     }
                                 }
-
+                            } else {
+                                foreach ($list_groupings as $maingroups => $groups) {
+                                    foreach ($groups as $grps) {
+                                        $query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldname`='" . mysql_real_escape_string($grps) . "'";
+                                        $result = mysql_query($query);
+                                        $row = mysql_fetch_assoc($result);
+                                        $field_id = $row['id'];
+                                        if ($ezvars->debug > 0) {
+                                            logActivity("ezchimp_hook_order: subscription field1 - " . print_r($row['id'], true));
+                                        }
+                                        mysql_free_result($result);
+                                        $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`='on'";
+                                        $result = mysql_query($query);
+                                        $subscribed1 = array();
+                                        while ($row = mysql_fetch_assoc($result)) {
+                                            $subscribed1[$row['relid']] = 1;
+                                        }
+                                        mysql_free_result($result);
+                                        $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`=''";
+                                        $result = mysql_query($query);
+                                        $subscribed2 = array();
+                                        while ($row = mysql_fetch_assoc($result)) {
+                                            $subscribed2[$row['relid']] = 1;
+                                        }
+                                        mysql_free_result($result);
+                                        if (isset($subscribed2[$client_id])) {
+                                            if ($ezvars->debug > 2) {
+                                                logActivity("ezchimp_hook_order: subscribion update1");
+                                            }
+                                            $query = "UPDATE `tblcustomfieldsvalues` SET `value`='on' where `relid`=$client_id AND `fieldid`=$field_id";
+                                            mysql_query($query);
+                                        } else if (!isset($subscribed1[$client_id])) {
+                                            if ($ezvars->debug > 2) {
+                                                logActivity("ezchimp_hook_order: subscribed insert1 - " . print_r($subscribed1, true));
+                                            }
+                                            $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($field_id, $client_id, 'on')";
+                                            mysql_query($query);
+                                        } else {
+                                            if ($ezvars->debug > 2) {
+                                                logActivity("ezchimp_hook_order: list subscribed");
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -275,53 +273,49 @@ function ezchimp_hook_order($vars)
                             if ($ezvars->debug > 0) {
                                 logActivity("ezchimp_hook_order: subscription group1 -$list_groupings ");
                             }
-                            foreach ($list_groupings as $maingroups => $groups) {
-                                foreach ($sub as $subgrp => $subgrps) {
-                                    if (!($subgrps['unsubscribe'] == 1)) {
-                                        foreach ($subgrps['grouping'] as $maingroup) {
-                                            $subscription_groupings = array();
-                                            $groups_str = '';
-                                            $grps3 = '';
-                                            if ($ezvars->debug > 0) {
-                                                logActivity("ezchimp_hook_order: sub2 - " . print_r($maingroup['groups'], true));
-                                            }
-                                            if (!(strcmp($maingroups, $maingroup['name']))) {
-                                                if (!empty($maingroup['groups'])) {
-                                                    $grps1 = explode(",", $maingroup['groups']);
-                                                    $grps2 = array_unique($grps1);
-                                                    $grps3 = implode(',', $grps2);
-                                                    if ($ezvars->debug > 0) {
-                                                        logActivity("ezchimp_hook_order: subscribtion scheck - " . print_r($grps3, true));
-                                                    }
-                                                    $groups_str .= ($grps3) . ',';
-                                                }
-                                                if ('' != $groups_str) {
-                                                    $groups_str = substr($groups_str, 0, -1);
-                                                    $subscription_groupings[] = array('name' => $maingroups, 'groups' => $groups_str);
-                                                    if ($ezvars->debug > 0) {
-                                                        logActivity("ezchimp_hook_order: subscription case1 - " . print_r($maingroups, true));
-                                                    }
-                                                    if ($ezvars->debug > 0) {
-                                                        logActivity("ezchimp_hook_order: subscription grp1 - " . print_r($groups_str, true));
-                                                    }
-                                                    $subscriptions[] = array('list' => $subgrps['list'], 'grouping' => $subscription_groupings);
-                                                }
-                                                if ($ezvars->debug > 0) {
-                                                    logActivity("ezchimp_hook_order: subscription grps1 - " . print_r($groups_str, true));
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                             if (!(is_array($list_groupings))) {
                                 $subscription_groupings1 = array();
                                 $subscriptions[] = array('list' => $list_groupings, 'grouping' => $subscription_groupings1);
                                 if ($ezvars->debug > 0) {
                                     logActivity("ezchimp_hook_order: single prodname -". print_r($subscriptions, true));
-                                }
-                                if ($ezvars->debug > 0) {
                                     logActivity("ezchimp_hook_order: listid - ". print_r($list_groupings, true));
+                                }
+                            } else {
+                                foreach ($list_groupings as $maingroups => $groups) {
+                                    foreach ($sub as $subgrp => $subgrps) {
+                                        if (!($subgrps['unsubscribe'] == 1)) {
+                                            foreach ($subgrps['grouping'] as $maingroup) {
+                                                $subscription_groupings = array();
+                                                $groups_str = '';
+                                                if ($ezvars->debug > 0) {
+                                                    logActivity("ezchimp_hook_order: sub2 - " . print_r($maingroup['groups'], true));
+                                                }
+                                                if (!(strcmp($maingroups, $maingroup['name']))) {
+                                                    if (!empty($maingroup['groups'])) {
+                                                        $grps1 = explode(",", $maingroup['groups']);
+                                                        $grps2 = array_unique($grps1);
+                                                        $grps3 = implode(',', $grps2);
+                                                        if ($ezvars->debug > 0) {
+                                                            logActivity("ezchimp_hook_order: subscriptions check - " . print_r($grps3, true));
+                                                        }
+                                                        $groups_str .= ($grps3) . ',';
+                                                    }
+                                                    if ('' != $groups_str) {
+                                                        $groups_str = substr($groups_str, 0, -1);
+                                                        $subscription_groupings[] = array('name' => $maingroups, 'groups' => $groups_str);
+                                                        if ($ezvars->debug > 0) {
+                                                            logActivity("ezchimp_hook_order: subscription case1 - " . print_r($maingroups, true));
+                                                            logActivity("ezchimp_hook_order: subscription grp1 - " . print_r($groups_str, true));
+                                                        }
+                                                        $subscriptions[] = array('list' => $subgrps['list'], 'grouping' => $subscription_groupings);
+                                                    }
+                                                    if ($ezvars->debug > 0) {
+                                                        logActivity("ezchimp_hook_order: subscription grps1 - " . print_r($groups_str, true));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -332,7 +326,7 @@ function ezchimp_hook_order($vars)
                     foreach($groupings1[$productgroup_name] as $list_id2 => $list_unsub){
                         if (!empty($list_unsub)) {
                             if ($ezvars->debug > 0) {
-                                logActivity("ezchimp_hook_order: unsubscription1 group1 - ".print_r($list_unsub, true));
+                                logActivity("ezchimp_hook_order: unsubscribe group1 - ".print_r($list_unsub, true));
                             }
                             foreach ($list_unsub as  $groups) {
                                 foreach($groups as $grps){
@@ -341,7 +335,7 @@ function ezchimp_hook_order($vars)
                                     $row = mysql_fetch_assoc($result);
                                     $field_id = $row['id'];
                                     if ($ezvars->debug > 0) {
-                                        logActivity("ezchimp_hook_order: unsubscription1 field3 - " . print_r($row['id'], true));
+                                        logActivity("ezchimp_hook_order: unsubscribe1 field3 - " . print_r($row['id'], true));
                                     }
                                     mysql_free_result($result);
                                     $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`='on'";
@@ -353,7 +347,7 @@ function ezchimp_hook_order($vars)
                                     mysql_free_result($result);
                                     if (isset($subscribed[$client_id])) {
                                         if ($ezvars->debug > 2) {
-                                            logActivity("ezchimp_output: unsubscribed1 update3 - " . print_r($subscribed, true));
+                                            logActivity("ezchimp_hook_order: unsubscribed1 update3 - " . print_r($subscribed, true));
                                         }
                                         $query = "UPDATE `tblcustomfieldsvalues` SET `value`='' where `relid`=$client_id AND `fieldid`=$field_id";
                                         mysql_query($query);
@@ -366,7 +360,7 @@ function ezchimp_hook_order($vars)
                                 $row = mysql_fetch_assoc($result);
                                 $field_id = $row['id'];
                                 if ($ezvars->debug > 0) {
-                                    logActivity("ezchimp_hook_order: unsubscription1 field4 - " . print_r($row['id'], true));
+                                    logActivity("ezchimp_hook_order: unsubscribe1 field4 - " . print_r($row['id'], true));
                                 }
                                 mysql_free_result($result);
                                 $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`='on'";
@@ -378,7 +372,7 @@ function ezchimp_hook_order($vars)
                                 mysql_free_result($result);
                                 if (isset($subscribed[$client_id])) {
                                     if ($ezvars->debug > 2) {
-                                        logActivity("ezchimp_output: unsubscribed1 update4 - " . print_r($subscribed, true));
+                                        logActivity("ezchimp_hook_order: unsubscribed1 update4 - " . print_r($subscribed, true));
                                     }
                                     $query = "UPDATE `tblcustomfieldsvalues` SET `value`='' where `relid`=$client_id AND `fieldid`=$field_id";
                                     mysql_query($query);
@@ -386,11 +380,11 @@ function ezchimp_hook_order($vars)
                             }
                         }
                     }
-                    foreach($groupings1[$productgroup_name] as $list_id2 =>$list_unsub){
+                    foreach($groupings1[$productgroup_name] as $list_id2 => $list_unsub){
                         $subscription_groupings = array();
                         if (!empty($list_unsub)) {
                             if ($ezvars->debug > 0) {
-                                logActivity("ezchimp_hook_order: unsubscription2 group1 -$list_unsub ");
+                                logActivity("ezchimp_hook_order: unsubscribe2 group1 - $list_unsub");
                             }
                             foreach ($list_unsub as $maingroups => $groups) {
                                 $val='';
@@ -400,17 +394,17 @@ function ezchimp_hook_order($vars)
                                             foreach ($subgrps1['grouping'] as $maingroup1) {
                                                 if (!(strcmp($maingroups, $maingroup1['name']))) {
                                                     if ($ezvars->debug > 0) {
-                                                        logActivity("ezchimp_hook_order: unsubscription main1ch1 - " . print_r($maingroups, true));
+                                                        logActivity("ezchimp_hook_order: unsubscribe main1ch1 - " . print_r($maingroups, true));
                                                     }
                                                     foreach ($subgrps['grouping'] as $maingroup) {
-                                                        if (!(strcmp($maingroup1['name'],$maingroup['name']))) {
-                                                            $val=true;
+                                                        if (!(strcmp($maingroup1['name'], $maingroup['name']))) {
+                                                            $val = true;
                                                             if ($ezvars->debug > 0) {
-                                                                logActivity("ezchimp_hook_order: unsubscription main1ch2 - " . print_r($val, true));
+                                                                logActivity("ezchimp_hook_order: unsubscribe main1ch2 - " . print_r($val, true));
                                                             }
-                                                        } else{
+                                                        } else {
                                                             if ($ezvars->debug > 0) {
-                                                                logActivity("ezchimp_hook_order: unsubscription main1ch3 - " . print_r($val, true));
+                                                                logActivity("ezchimp_hook_order: unsubscribe main1ch3 - " . print_r($val, true));
                                                             }
                                                         }
                                                     }
@@ -442,10 +436,8 @@ function ezchimp_hook_order($vars)
                                                         $groups_str = substr($groups_str, 0, -1);
                                                         $subscription_groupings[] = array('name' => $maingroups, 'groups' => $groups_str);
                                                         if ($ezvars->debug > 0) {
-                                                            logActivity("ezchimp_hook_order: unsubscription case1 - " . print_r($maingroups, true));
-                                                        }
-                                                        if ($ezvars->debug > 0) {
-                                                            logActivity("ezchimp_hook_order: unsubscription grp1 - " . print_r($groups_str, true));
+                                                            logActivity("ezchimp_hook_order: unsubscribe case1 - " . print_r($maingroups, true));
+                                                            logActivity("ezchimp_hook_order: unsubscribe grp1 - " . print_r($groups_str, true));
                                                         }
                                                         $subscriptions1[] = array('list' => $subgrps['list'], 'grouping' => $subscription_groupings);
                                                     }
@@ -456,11 +448,8 @@ function ezchimp_hook_order($vars)
                                             $subscription_groupings1 = array();
                                             $subscriptions2[] = array('list' => $subgrps['list'], 'grouping' => $subscription_groupings1);
                                             if ($ezvars->debug > 0) {
-                                                logActivity("_ezchimp_get_client_unsubscriptions: single prodname1 -". print_r($subscriptions2, true));
-
-                                            }
-                                            if ($ezvars->debug > 0) {
-                                                logActivity("_ezchimp_get_client_unsubscriptions: listid - ". print_r($subgrps['list'], true));
+                                                logActivity("ezchimp_hook_order: single prodname1 - ". print_r($subscriptions2, true));
+                                                logActivity("ezchimp_hook_order: listid - ". print_r($subgrps['list'], true));
                                             }
                                         }
                                     }
@@ -468,10 +457,8 @@ function ezchimp_hook_order($vars)
                                     $groups_str = '';
                                     $subscription_groupings[] = array('name' => $maingroups, 'groups' => $groups_str);
                                     if ($ezvars->debug > 0) {
-                                        logActivity("ezchimp_hook_order: unsubscription main1 - " . print_r($maingroups, true));
-                                    }
-                                    if ($ezvars->debug > 0) {
-                                        logActivity("ezchimp_hook_order: unsubscription maingrp1 - " . print_r($groups_str, true));
+                                        logActivity("ezchimp_hook_order: unsubscribe main1 - " . print_r($maingroups, true));
+                                        logActivity("ezchimp_hook_order: unsubscribe maingrp1 - " . print_r($groups_str, true));
                                     }
                                     $subscriptions1[] = array('list' => $list_id2, 'grouping' => $subscription_groupings);
                                 }
@@ -481,9 +468,6 @@ function ezchimp_hook_order($vars)
                                 $subscriptions2[] = array('list' => $list_unsub, 'grouping' => $subscription_groupings1);
                                 if ($ezvars->debug > 0) {
                                     logActivity("ezchimp_hook_order: single prodname2 -". print_r($subscriptions2, true));
-
-                                }
-                                if ($ezvars->debug > 0) {
                                     logActivity("ezchimp_hook_order: listid - ". print_r($list_unsub, true));
                                 }
                             }
@@ -742,7 +726,7 @@ function _ezchimp_get_listgroup_subscriptions($client_id, &$ezvars) {
             }
             foreach ($all_groups as $gr) {
                 if ($ezvars->debug > 2) {
-                    logActivity("ezchimp_get_client_subscriptions: all_groups2 - ".print_r($gr, true));
+                    logActivity("_ezchimp_get_listgroup_subscriptions: all_groups2 - ".print_r($gr, true));
                 }
             }
 //            if (!empty($all_groups)) {
@@ -775,7 +759,7 @@ function _ezchimp_get_client_email_type($client_id, &$ezvars) {
     $email_type = $ezvars->settings['default_format'];
 
     $field_id = 0;
-    $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'dropdown', 'fieldname' => 'Email format', 'sortorder' => 46307));
+    $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'dropdown', 'sortorder' => 46307));
     if ($row = mysql_fetch_assoc($result)) {
         $field_id = $row['id'];
     }
@@ -802,7 +786,7 @@ function _ezchimp_get_client_subscribe_contacts($client_id, &$ezvars) {
     $subscribecontacts = '';
 
     $field_id = 0;
-    $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'tickbox', 'fieldname' => 'Subscribe all contacts', 'sortorder' => 46309));
+    $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'tickbox', 'sortorder' => 46309));
     if ($row = mysql_fetch_assoc($result)) {
         $field_id = $row['id'];
     }
