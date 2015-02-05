@@ -736,8 +736,8 @@ function ezchimp_output($vars) {
                                         logActivity("reset_to_autosubscribe: groupings - " . print_r($groupings, true));
                                     }
 
-                                    $result = select_query('tblclients', 'id, firstname, lastname, email', array('status' => 'Active'));
-                                    while ($client = mysql_fetch_assoc($result)) {
+                                    $result_clients = select_query('tblclients', 'id, firstname, lastname, email', array('status' => 'Active'));
+                                    while ($client = mysql_fetch_assoc($result_clients)) {
                                         $client_id = $client['id'];
                                         $firstname = $client['firstname'];
                                         $lastname = $client['lastname'];
@@ -748,19 +748,19 @@ function ezchimp_output($vars) {
                                         $productgroup_names = array();
                                         /* Check ordered domains if domains grouping available */
                                         if (!empty($groupings['Domains']) || !empty($groupings1['Domains'])) {
-                                            $result_d = select_query('tbldomains', 'id', array('userid' => $client_id));
-                                            if (mysql_num_rows($result_d) > 0) {
+                                            $result = select_query('tbldomains', 'id', array('userid' => $client_id));
+                                            if (mysql_num_rows($result) > 0) {
                                                 $productgroup_names['Domains'] = 1;
                                             }
                                         }
-                                        mysql_free_result($result_d);
+                                        mysql_free_result($result);
                                         /* Check the ordered modules */
                                         $query = "SELECT DISTINCT `g`.`name` AS `gname` FROM `tblhosting` AS `h` JOIN `tblproducts` AS `p` ON `h`.`packageid`=`p`.`id` JOIN `tblproductgroups` AS `g` ON `p`.`gid`=`g`.`id` WHERE `h`.`userid`='".$client_id."'";
-                                        $result1 = mysql_query($query);
-                                        while ($productgroup = mysql_fetch_assoc($result1)) {
+                                        $result = mysql_query($query);
+                                        while ($productgroup = mysql_fetch_assoc($result)) {
                                             $productgroup_names[$productgroup['gname']] = 1;
                                         }
-                                        mysql_free_result($result1);
+                                        mysql_free_result($result);
                                         if ($ezconf->debug > 1) {
                                             logActivity("reset_to_autosubscribe: Product groups for $firstname $lastname [$email] ($client_id) - " . print_r($productgroup_names, true));
                                         }
@@ -887,9 +887,9 @@ function ezchimp_output($vars) {
                                             logActivity("reset_to_autosubscribe: Subscriptions for $firstname $lastname [$email] ($client_id) - " . print_r($subscribe_list_groups, true));
                                         }
                                         if (!empty($subscribe_list_groups)) {
-                                            foreach ($subscribe_list_groups as $list_id => $groupings) {
+                                            foreach ($subscribe_list_groups as $list_id => $interest_groupings) {
                                                 $subscription_groupings = array();
-                                                foreach ($groupings as $maingroup => $sub_groups) {
+                                                foreach ($interest_groupings as $maingroup => $sub_groups) {
                                                     $sub_groups_str = implode(',', $sub_groups);
                                                     $subscription_groupings[] = array('name' => $maingroup, 'groups' => $sub_groups_str);
                                                 }
@@ -899,7 +899,7 @@ function ezchimp_output($vars) {
                                             }
                                         }
                                     }
-                                    mysql_free_result($result);
+                                    mysql_free_result($result_clients);
                                     if ($ezconf->debug > 0) {
                                         logActivity("reset_to_autosubscribe: errors - ".print_r($errors, true));
                                     }
