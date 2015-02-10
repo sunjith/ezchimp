@@ -736,112 +736,68 @@ function ezchimp_output($vars) {
                                         logActivity("reset_to_autosubscribe: groupings - " . print_r($groupings, true));
                                     }
 
-                                    $result_clients = select_query('tblclients', 'id, firstname, lastname, email', array('status' => 'Active'));
-                                    while ($client = mysql_fetch_assoc($result_clients)) {
-                                        $client_id = $client['id'];
-                                        $firstname = $client['firstname'];
-                                        $lastname = $client['lastname'];
-                                        $email = $client['email'];
-                                        $email_type = _ezchimp_client_email_type($client_id, $ezvars);
-                                        //$client_subscribe_contacts = _ezchimp_client_subscribe_contacts($client_id, $ezvars);
-
-                                        $productgroup_names = array();
-                                        /* Check ordered domains if domains grouping available */
-                                        if (!empty($groupings['Domains']) || !empty($groupings1['Domains'])) {
-                                            $result = select_query('tbldomains', 'id', array('userid' => $client_id));
-                                            if (mysql_num_rows($result) > 0) {
-                                                $productgroup_names['Domains'] = 1;
+                                    if ($result_clients = select_query('tblclients', 'COUNT(id) AS client_count', array('status' => 'Active'))) {
+                                        $client_count = 0;
+                                        if ($row = mysql_fetch_assoc($result_clients)) {
+                                            $client_count = $row['client_count'];
+                                        }
+                                        mysql_free_result($result_clients);
+                                        $offset = 0;
+                                        $limit = 100;
+                                        do {
+                                            if ($ezconf->debug > 1) {
+                                                logActivity("reset_to_autosubscribe: offset: $offset, limit: $limit, total: $client_count");
                                             }
-                                        }
-                                        mysql_free_result($result);
-                                        /* Check the ordered modules */
-                                        $query = "SELECT DISTINCT `g`.`name` AS `gname` FROM `tblhosting` AS `h` JOIN `tblproducts` AS `p` ON `h`.`packageid`=`p`.`id` JOIN `tblproductgroups` AS `g` ON `p`.`gid`=`g`.`id` WHERE `h`.`userid`='".$client_id."'";
-                                        $result = mysql_query($query);
-                                        while ($productgroup = mysql_fetch_assoc($result)) {
-                                            $productgroup_names[$productgroup['gname']] = 1;
-                                        }
-                                        mysql_free_result($result);
-                                        if ($ezconf->debug > 1) {
-                                            logActivity("reset_to_autosubscribe: Product groups for $firstname $lastname [$email] ($client_id) - " . print_r($productgroup_names, true));
-                                        }
-                                        $subscribe_list_groups = array();
-                                        foreach ($productgroup_names as $productgroup_name => $one) {
-                                            if (!empty($groupings[$productgroup_name])) {
-                                                foreach ($groupings[$productgroup_name] as $list_id1 => $list_groupings) {
-                                                    if ($ezconf->debug > 0) {
-                                                        logActivity("reset_to_autosubscribe: subscription group1 ($list_id1) - ".print_r($list_groupings, true));
+                                            $query = "SELECT DISTINCT `id`, `firstname`, `lastname`, `email` FROM `tblclients` WHERE `status`='Active' ORDER BY `id` ASC LIMIT $offset, $limit";
+                                            //$result_clients = select_query('tblclients', 'id, firstname, lastname, email', array('status' => 'Active'));
+                                            $result_clients = mysql_query($query);
+                                            while ($client = mysql_fetch_assoc($result_clients)) {
+                                                $client_id = $client['id'];
+                                                $firstname = $client['firstname'];
+                                                $lastname = $client['lastname'];
+                                                $email = $client['email'];
+                                                $email_type = _ezchimp_client_email_type($client_id, $ezvars);
+                                                //$client_subscribe_contacts = _ezchimp_client_subscribe_contacts($client_id, $ezvars);
+
+                                                $productgroup_names = array();
+                                                /* Check ordered domains if domains grouping available */
+                                                if (!empty($groupings['Domains']) || !empty($groupings1['Domains'])) {
+                                                    $result = select_query('tbldomains', 'id', array('userid' => $client_id));
+                                                    if (mysql_num_rows($result) > 0) {
+                                                        $productgroup_names['Domains'] = 1;
                                                     }
-                                                    if (!(is_array($list_groupings))) {
-                                                        if ($ezconf->debug > 0) {
-                                                            logActivity("reset_to_autosubscribe: empty main group");
-                                                        }
-                                                        if (!isset($subscribe_list_groups[$list_id1])) {
-                                                            $subscribe_list_groups[$list_id1] = array();
-                                                        }
-                                                        $query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldoptions`='" . mysql_real_escape_string($list_id1) . "'";
-                                                        $result = mysql_query($query);
-                                                        $row = mysql_fetch_assoc($result);
-                                                        $field_id = $row['id'];
-                                                        if ($ezconf->debug > 0) {
-                                                            logActivity("reset_to_autosubscribe: subscription field3 - " . $row['id']);
-                                                        }
-                                                        mysql_free_result($result);
-                                                        $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`='on'";
-                                                        $result = mysql_query($query);
-                                                        $subscribed1 = array();
-                                                        while ($row = mysql_fetch_assoc($result)) {
-                                                            $subscribed1[$row['relid']] = 1;
-                                                        }
-                                                        mysql_free_result($result);
-                                                        $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`=''";
-                                                        $result = mysql_query($query);
-                                                        $subscribed2 = array();
-                                                        while ($row = mysql_fetch_assoc($result)) {
-                                                            $subscribed2[$row['relid']] = 1;
-                                                        }
-                                                        mysql_free_result($result);
-                                                        if (isset($subscribed2[$client_id])) {
-                                                            if ($ezconf->debug > 2) {
-                                                                logActivity("reset_to_autosubscribe: subscription update3");
+                                                }
+                                                mysql_free_result($result);
+                                                /* Check the ordered modules */
+                                                $query = "SELECT DISTINCT `g`.`name` AS `gname` FROM `tblhosting` AS `h` JOIN `tblproducts` AS `p` ON `h`.`packageid`=`p`.`id` JOIN `tblproductgroups` AS `g` ON `p`.`gid`=`g`.`id` WHERE `h`.`userid`='" . $client_id . "'";
+                                                $result = mysql_query($query);
+                                                while ($productgroup = mysql_fetch_assoc($result)) {
+                                                    $productgroup_names[$productgroup['gname']] = 1;
+                                                }
+                                                mysql_free_result($result);
+                                                if ($ezconf->debug > 1) {
+                                                    logActivity("reset_to_autosubscribe: Product groups for $firstname $lastname [$email] ($client_id) - " . print_r($productgroup_names, true));
+                                                }
+                                                $subscribe_list_groups = array();
+                                                foreach ($productgroup_names as $productgroup_name => $one) {
+                                                    if (!empty($groupings[$productgroup_name])) {
+                                                        foreach ($groupings[$productgroup_name] as $list_id1 => $list_groupings) {
+                                                            if ($ezconf->debug > 0) {
+                                                                logActivity("reset_to_autosubscribe: subscription group1 ($list_id1) - " . print_r($list_groupings, true));
                                                             }
-                                                            $query = "UPDATE `tblcustomfieldsvalues` SET `value`='on' where `relid`=$client_id AND `fieldid`=$field_id";
-                                                            mysql_query($query);
-                                                        } else if (!isset($subscribed1[$client_id])) {
-                                                            if ($ezconf->debug > 2) {
-                                                                logActivity("reset_to_autosubscribe: subscribed insert3 - " . print_r($subscribed1, true));
-                                                            }
-                                                            $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($field_id, $client_id, 'on')";
-                                                            mysql_query($query);
-                                                        } else {
-                                                            if ($ezconf->debug > 2) {
-                                                                logActivity("reset_to_autosubscribe: list subscribed3");
-                                                            }
-                                                        }
-                                                    } else {
-                                                        if (!isset($subscribe_list_groups[$list_id1])) {
-                                                            $subscribe_list_groups[$list_id1] = $list_groupings;
-                                                            $fresh_list = true;
-                                                        } else {
-                                                            $fresh_list = false;
-                                                        }
-                                                        foreach ($list_groupings as $maingroup => $groups) {
-                                                            if (!$fresh_list) {
-                                                                if (!isset($subscribe_list_groups[$list_id1][$maingroup])) {
-                                                                    $subscribe_list_groups[$list_id1][$maingroup] = $groups;
-                                                                } else {
-                                                                    $subscribe_list_groups[$list_id1][$maingroup] = array_unique(array_merge($subscribe_list_groups[$list_id1][$maingroup], $groups));
-                                                                    if ($ezconf->debug > 4) {
-                                                                        logActivity("reset_to_autosubscribe: New sub groups ($list_id1 > $maingroup): ".print_r($subscribe_list_groups[$list_id1][$maingroup], true));
-                                                                    }
+                                                            if (!(is_array($list_groupings))) {
+                                                                if ($ezconf->debug > 0) {
+                                                                    logActivity("reset_to_autosubscribe: empty main group");
                                                                 }
-                                                            }
-                                                            foreach ($groups as $grps) {
-                                                                $query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldname`='" . mysql_real_escape_string($grps) . "'";
+                                                                if (!isset($subscribe_list_groups[$list_id1])) {
+                                                                    $subscribe_list_groups[$list_id1] = array();
+                                                                }
+                                                                $query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldoptions`='" . mysql_real_escape_string($list_id1) . "'";
                                                                 $result = mysql_query($query);
                                                                 $row = mysql_fetch_assoc($result);
                                                                 $field_id = $row['id'];
                                                                 if ($ezconf->debug > 0) {
-                                                                    logActivity("reset_to_autosubscribe: subscription field1 - " . print_r($row['id'], true));
+                                                                    logActivity("reset_to_autosubscribe: subscription field3 - " . $row['id']);
                                                                 }
                                                                 mysql_free_result($result);
                                                                 $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`='on'";
@@ -860,46 +816,107 @@ function ezchimp_output($vars) {
                                                                 mysql_free_result($result);
                                                                 if (isset($subscribed2[$client_id])) {
                                                                     if ($ezconf->debug > 2) {
-                                                                        logActivity("reset_to_autosubscribe: subscribion update1");
+                                                                        logActivity("reset_to_autosubscribe: subscription update3");
                                                                     }
                                                                     $query = "UPDATE `tblcustomfieldsvalues` SET `value`='on' where `relid`=$client_id AND `fieldid`=$field_id";
                                                                     mysql_query($query);
                                                                 } else if (!isset($subscribed1[$client_id])) {
                                                                     if ($ezconf->debug > 2) {
-                                                                        logActivity("reset_to_autosubscribe: subscribed insert1 - " . print_r($subscribed1, true));
+                                                                        logActivity("reset_to_autosubscribe: subscribed insert3 - " . print_r($subscribed1, true));
                                                                     }
                                                                     $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($field_id, $client_id, 'on')";
                                                                     mysql_query($query);
                                                                 } else {
                                                                     if ($ezconf->debug > 2) {
-                                                                        logActivity("reset_to_autosubscribe: list subscribed");
+                                                                        logActivity("reset_to_autosubscribe: list subscribed3");
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                if (!isset($subscribe_list_groups[$list_id1])) {
+                                                                    $subscribe_list_groups[$list_id1] = $list_groupings;
+                                                                    $fresh_list = true;
+                                                                } else {
+                                                                    $fresh_list = false;
+                                                                }
+                                                                foreach ($list_groupings as $maingroup => $groups) {
+                                                                    if (!$fresh_list) {
+                                                                        if (!isset($subscribe_list_groups[$list_id1][$maingroup])) {
+                                                                            $subscribe_list_groups[$list_id1][$maingroup] = $groups;
+                                                                        } else {
+                                                                            $subscribe_list_groups[$list_id1][$maingroup] = array_unique(array_merge($subscribe_list_groups[$list_id1][$maingroup], $groups));
+                                                                            if ($ezconf->debug > 4) {
+                                                                                logActivity("reset_to_autosubscribe: New sub groups ($list_id1 > $maingroup): " . print_r($subscribe_list_groups[$list_id1][$maingroup], true));
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    foreach ($groups as $grps) {
+                                                                        $query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldname`='" . mysql_real_escape_string($grps) . "'";
+                                                                        $result = mysql_query($query);
+                                                                        $row = mysql_fetch_assoc($result);
+                                                                        $field_id = $row['id'];
+                                                                        if ($ezconf->debug > 0) {
+                                                                            logActivity("reset_to_autosubscribe: subscription field1 - " . print_r($row['id'], true));
+                                                                        }
+                                                                        mysql_free_result($result);
+                                                                        $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`='on'";
+                                                                        $result = mysql_query($query);
+                                                                        $subscribed1 = array();
+                                                                        while ($row = mysql_fetch_assoc($result)) {
+                                                                            $subscribed1[$row['relid']] = 1;
+                                                                        }
+                                                                        mysql_free_result($result);
+                                                                        $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`=''";
+                                                                        $result = mysql_query($query);
+                                                                        $subscribed2 = array();
+                                                                        while ($row = mysql_fetch_assoc($result)) {
+                                                                            $subscribed2[$row['relid']] = 1;
+                                                                        }
+                                                                        mysql_free_result($result);
+                                                                        if (isset($subscribed2[$client_id])) {
+                                                                            if ($ezconf->debug > 2) {
+                                                                                logActivity("reset_to_autosubscribe: subscribion update1");
+                                                                            }
+                                                                            $query = "UPDATE `tblcustomfieldsvalues` SET `value`='on' where `relid`=$client_id AND `fieldid`=$field_id";
+                                                                            mysql_query($query);
+                                                                        } else if (!isset($subscribed1[$client_id])) {
+                                                                            if ($ezconf->debug > 2) {
+                                                                                logActivity("reset_to_autosubscribe: subscribed insert1 - " . print_r($subscribed1, true));
+                                                                            }
+                                                                            $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($field_id, $client_id, 'on')";
+                                                                            mysql_query($query);
+                                                                        } else {
+                                                                            if ($ezconf->debug > 2) {
+                                                                                logActivity("reset_to_autosubscribe: list subscribed");
+                                                                            }
+                                                                        }
                                                                     }
                                                                 }
                                                             }
                                                         }
+                                                    } else {
+                                                        $errors[] = "Product group [" . $productgroup_name . "] lists not found in map";
                                                     }
                                                 }
-                                            } else {
-                                                $errors[] = "Product group [" . $productgroup_name . "] lists not found in map";
-                                            }
-                                        }
-                                        if ($ezconf->debug > 4) {
-                                            logActivity("reset_to_autosubscribe: Subscriptions for $firstname $lastname [$email] ($client_id) - " . print_r($subscribe_list_groups, true));
-                                        }
-                                        if (!empty($subscribe_list_groups)) {
-                                            foreach ($subscribe_list_groups as $list_id => $interest_groupings) {
-                                                $subscription_groupings = array();
-                                                foreach ($interest_groupings as $maingroup => $sub_groups) {
-                                                    $sub_groups_str = implode(',', $sub_groups);
-                                                    $subscription_groupings[] = array('name' => $maingroup, 'groups' => $sub_groups_str);
+                                                if ($ezconf->debug > 4) {
+                                                    logActivity("reset_to_autosubscribe: Subscriptions for $firstname $lastname [$email] ($client_id) - " . print_r($subscribe_list_groups, true));
                                                 }
-                                                $subscription = array('list' => $list_id, 'grouping' => $subscription_groupings);
-                                                _ezchimp_subscribe($subscription, $firstname, $lastname, $email, $email_type, $ezvars);
-                                                // TODO: subscribe contacts if configured
+                                                if (!empty($subscribe_list_groups)) {
+                                                    foreach ($subscribe_list_groups as $list_id => $interest_groupings) {
+                                                        $subscription_groupings = array();
+                                                        foreach ($interest_groupings as $maingroup => $sub_groups) {
+                                                            $sub_groups_str = implode(',', $sub_groups);
+                                                            $subscription_groupings[] = array('name' => $maingroup, 'groups' => $sub_groups_str);
+                                                        }
+                                                        $subscription = array('list' => $list_id, 'grouping' => $subscription_groupings);
+                                                        _ezchimp_subscribe($subscription, $firstname, $lastname, $email, $email_type, $ezvars);
+                                                        // TODO: subscribe contacts if configured
+                                                    }
+                                                }
                                             }
-                                        }
+                                            mysql_free_result($result_clients);
+                                            $offset += $limit;
+                                        } while ($offset < $client_count);
                                     }
-                                    mysql_free_result($result_clients);
                                     if ($ezconf->debug > 0) {
                                         logActivity("reset_to_autosubscribe: errors - ".print_r($errors, true));
                                     }
