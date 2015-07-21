@@ -1,4 +1,33 @@
-Documentation: http://blog.admod.com/2012/01/23/ezchimp-whmcs-mailchimp-integration/
+SETUP
+-------
+1. Download and extract the ezchimp.zip file into your modules/addons/ folder within your WHMCS directory.
+
+2. Move the ezchimp_webhook.php file to your WHMCS root directory (eg: /home/username/public_html/whmcs).
+ Test and make sure http://yourdomain.com/whmcs/ezchimp_webhook.php is giving a blank page instead of any
+ errors such as internal server error (500). If it does, check and fix the ownership (should be owned by
+ the domain’s username on a cpanel server for example), permission (try 555) etc so that it works.
+
+3. Go to WHMCS admin -> Setup -> Addon Modules and “activate” the module listed as “MailChimp newsletter”
+
+4. Set the WHMCS base URL (eg: http://yourdomain.com/whmcs, since version 1.6 only).
+
+5. After successful activation enter you MailChimp API key, set access control below in the same page.
+
+6. Go to “Addons” -> “MailChimp newsletter” and configure the settings as necessary.
+
+7. Click on “Lists & Groups” in right menu to display all mailing lists and interest groups in your Mailchimp account.
+
+8. Enable those you need to make available to your clients in WHMCS. Give an alias as you wish.
+ If an alias is not specified, the name of the interest group (or the name of the list if there
+ are no interest groups in it) will be used.
+
+9. The “Status” link in side menu will display the subscription status of your clients and their sub-contacts
+ to mailing lists and interest groups.
+
+10. Use the “Tools” link to initially subscribe existing clients after a fresh activation of ezchimp module.
+
+See the full documentation with screenshots here: http://blog.admod.com/2012/01/23/ezchimp-whmcs-mailchimp-integration/
+
 
 LICENSE
 -------
@@ -21,7 +50,7 @@ Also we shall include your name and website URL (if any) in CREDITS section belo
 
 CREDITS:
 -------
-* AdMod Technologies Pvt Ltd. (www.admod.com, www.ezeelogin.com, www.openstackwiz.com) - Develop, maintain and support ezchimp module
+* AdMod Technologies Pvt Ltd. (www.admod.com, www.ezeelogin.com, www.supportmonk.com) - Develop, maintain and support ezchimp module
 
 
 CHANGE LOG:
