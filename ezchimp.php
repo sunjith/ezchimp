@@ -45,9 +45,9 @@ class EzchimpAllVars {
 
 function ezchimp_config() {
     $configarray = array(
-    "name" => "MailChimp newsletter",
+    "name" => "MAILCHIMP NEWSLETTER",
     "description" => "Integrates with MailChimp. Supports subscribe/unsubscribe, multiple mailing lists and interest groups, multi-language.", //, synchronization
-    "version" => "1.18",
+    "version" => "1.19",
     "author" => "AdMod Technologies - www.admod.com",
     "language" => "english",
     "fields" => array(
@@ -343,11 +343,12 @@ function ezchimp_output($vars) {
 
                 /* Pagination links */
                 if ($pages > 1) {
+                    echo '<ul class="pager">';
                     if ($page_number > 1) {
-                        echo '<a href="'.$modulelink.'&page=status&p='.($page_number - 1).'">'.$LANG['prev'].'</a> ';
+                        echo '<li class="previous"><a href="'.$modulelink.'&page=status&p='.($page_number - 1).'">'.$LANG['prev'].'</a> </li>';
                     }
                     if ($page_number < $pages) {
-                        echo '<a href="'.$modulelink.'&page=status&p='.($page_number + 1).'">'.$LANG['next'].'</a> ';
+                        echo '<li class="next"><a href="'.$modulelink.'&page=status&p='.($page_number + 1).'">'.$LANG['next'].'</a> </li>';
                     }
                     echo '&nbsp; ';
                     for ($i = 1; $i <= $pages; $i++) {
@@ -356,27 +357,28 @@ function ezchimp_output($vars) {
                         } else {
                             $pg = $i;
                         }
-                        echo '<a href="'.$modulelink.'&page=status&p='.$i.'">'.$pg.'</a> ';
+                        echo '<li><a href="'.$modulelink.'&page=status&p='.$i.'">'.$pg.'</a> </li>';
                     }
+                    echo '<ul>';
                 }
 
 	    		echo '</p><div class="tablebg"><table class="datatable" width="100%" border="0" cellspacing="1" cellpadding="3">
-	<tr>
-		<th>'.$LANG['client_id'].'</th>';
-    			if ('on' == $settings['subscribe_contacts']) {
-    				echo '
-		<th>'.$LANG['contact_id'].'</th>';
-    			}
-    			echo '
-		<th>'.$LANG['firstname'].'</th>
-		<th>'.$LANG['lastname'].'</th>
-		<th>'.$LANG['email'].'</th>
-		<th>'.$LANG['format'].'</th>
-		<th>'.$LANG['list'].'</th>
-		<th>'.$LANG['groups'].'</th>
-		<th>'.$LANG['status'].'</th>
-		<th>'.$LANG['rating'].'</th>
-	</tr>';
+                    <tr>
+                        <th>'.$LANG['client_id'].'</th>';
+                                if ('on' == $settings['subscribe_contacts']) {
+                                    echo '
+                        <th>'.$LANG['contact_id'].'</th>';
+                                }
+                                echo '
+                        <th>'.$LANG['firstname'].'</th>
+                        <th>'.$LANG['lastname'].'</th>
+                        <th>'.$LANG['email'].'</th>
+                        <th>'.$LANG['format'].'</th>
+                        <th>'.$LANG['list'].'</th>
+                        <th>'.$LANG['groups'].'</th>
+                        <th>'.$LANG['status'].'</th>
+                        <th>'.$LANG['rating'].'</th>
+                    </tr>';
 
     			$activelists = unserialize($settings['activelists']);
 	    		$listnames = unserialize($settings['listnames']);
@@ -477,12 +479,18 @@ function ezchimp_output($vars) {
                 if ($ezconf->debug > 4) {
                     logActivity("ezchimp_output: sorted email_statuses - ".print_r($email_statuses, true));
                 }
+                $alter = 0;
 
 	    		foreach ($email_statuses as $email => $info) {
                     if (empty($info['subscriptions'])) {
+                        $alter++;
+                        if ($alter % 2 == 0) {
+                            echo '<tr class="rowhighlight">';
+                        } else {
+                            echo '<tr>';
+                        }
                         echo '
-	<tr>
-		<td><a href="clientssummary.php?userid='.$info['clientid'].'">'.$info['clientid'].'</a></td>';
+        <td><a href="clientssummary.php?userid='.$info['clientid'].'">'.$info['clientid'].'</a></td>';
                         if (isset($info['contactid'])) {
                             echo '
 	    <td><a href="clientscontacts.php?userid='.$info['clientid'].'&contactid='.$info['contactid'].'">'.$info['contactid'].'</a></td>
@@ -507,8 +515,13 @@ function ezchimp_output($vars) {
 	</tr>';
                     } else {
                         foreach ($info['subscriptions'] as $listid => $subscription) {
+                            $alter++;
+                            if ($alter % 2 == 0) {
+                                echo '<tr class="rowhighlight">';
+                            } else {
+                                echo '<tr>';
+                            }
                             echo '
-	<tr>
 		<td><a href="clientssummary.php?userid='.$info['clientid'].'">'.$info['clientid'].'</a></td>';
                             if (isset($info['contactid'])) {
                                 echo '
@@ -528,9 +541,15 @@ function ezchimp_output($vars) {
 		<td><a href="mailto:'.$email.'">'.$email.'</a></td>
 		<td>'.$subscription['format'].'</td>
 		<td>'.$listnames[$listid].'</td>
-		<td>'.$subscription['groups'].'</td>
-		<td>'.$subscription['status'].'</td>
-		<td>'.$subscription['rating'].'</td>
+		<td>'.$subscription['groups'].'</td>';
+              if ('pending' == $subscription['status']) {
+                  echo '<td class="textorange">' . $subscription['status'] . '</td>';
+              } else if ('subscribed' == $subscription['status']) {
+                  echo '<td class="textgreen">' . $subscription['status'] . '</td>';
+              } else {
+                  echo '<td>' . $subscription['status'] . '</td>';
+              }
+		echo '<td>'.$subscription['rating'].'</td>
 	</tr>';
 	    			    }
                     }
@@ -546,6 +565,11 @@ function ezchimp_output($vars) {
 		    			if ($ezconf->debug > 1) {
 		    				logActivity("ezchimp_output: tools - $action");
 		    			}
+                        $hosting_active = false;
+                        if ('subscribe_empty_hosting_active' == $action) {
+                            $action = 'subscribe_empty';
+                            $hosting_active = true;
+                        }
 		    			switch ($action) {
 		    				case 'subscribe_empty':
 								$fieldids = array();
@@ -613,7 +637,12 @@ function ezchimp_output($vars) {
 										}
 									}
 					    			$clients = array();
-                                    $result = select_query('tblclients', 'id, firstname, lastname, email', array('status' => 'Active'));
+                                    if ($hosting_active) {
+                                        $active_client_query = "SELECT DISTINCT tblclients.id as id, tblclients.firstname as firstname, tblclients.lastname as lastname, tblclients.email as email FROM  tblclients, tblhosting, tblproducts WHERE tblhosting.userid = tblclients.id AND tblhosting.packageid = tblproducts.id AND tblhosting.domainstatus = 'Active' AND tblclients.status = 'Active'";
+                                        $result = mysql_query($active_client_query);
+                                    } else {
+                                        $result = select_query('tblclients', 'id, firstname, lastname, email', array('status' => 'Active'));
+                                    }
 					    			while ($row = mysql_fetch_assoc($result)) {
 					    				$clientid = $row['id'];
 					    				$firstname = $row['firstname'];
@@ -944,6 +973,12 @@ function ezchimp_output($vars) {
 			<input type="radio" name="action" value="subscribe_empty" class="ui-button ui-widget ui-state-default ui-corner-all" role="button" aria-disabled="false">
 		</td>
 		<td class="fieldarea">'.$LANG['subscribe_empty_desc'].'</td>
+	</tr>
+	<tr>
+		<td class="fieldlabel">
+			<input type="radio" name="action" value="subscribe_empty_hosting_active" class="ui-button ui-widget ui-state-default ui-corner-all" role="button" aria-disabled="false">
+		</td>
+		<td class="fieldarea">'.$LANG['subscribe_empty_hosting_active_desc'].'</td>
 	</tr>
 	<tr>
 		<td class="fieldlabel">
