@@ -55,7 +55,8 @@ CREDITS:
 
 CHANGE LOG:
 ----------
-
+1.20 - 16 Nov 2016: Fix issue with default subscription when adding client.
+1.19 - 17 Aug 2016: New tool to subscribe existing clients with an active hosting account who are not already subscribed to any list/group to all active lists/groups.
 1.18 - 24 Dec 2014: Improve debug messages when listing existing subscriptions
 1.17 - 05 Aug 2014: Tool to reset subscriptions as per auto-subscribe settings
 1.16 - 27 Mar 2014: Remove global variables to improve security

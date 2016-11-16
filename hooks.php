@@ -497,11 +497,15 @@ function _ezchimp_init_client_subscriptions($client_id, &$ezvars) {
     $result = select_query('tblcustomfields', 'id, fieldoptions', array('type' => 'client', 'fieldtype' => 'tickbox', 'sortorder' => 46306));
     while ($row = mysql_fetch_assoc($result)) {
         $field_id = $row['id'];
-        $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ('$field_id', '$client_id', 'on')";
-        mysql_query($query);
-        if ($ezvars->debug > 2) {
-            logActivity("_ezchimp_init_client_subscriptions: subscribed - $client_id, ".$row['fieldoptions']);
+        $result2 = select_query('tblcustomfieldsvalues', 'fieldid, value', array('fieldid' => $field_id, 'relid' => $client_id));
+        if (0 === mysql_num_rows($result2)) {
+            $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ('$field_id', '$client_id', 'on')";
+            mysql_query($query);
+            if ($ezvars->debug > 2) {
+                logActivity("_ezchimp_init_client_subscriptions: subscribed - $client_id, ".$row['fieldoptions']);
+            }
         }
+        mysql_free_result($result2);
     }
     mysql_free_result($result);
 
@@ -518,7 +522,7 @@ function _ezchimp_init_client_subscriptions($client_id, &$ezvars) {
             $subscription_groupings = array();
             foreach ($groups as $maingroup => $groups) {
                 $groups_str = '';
-                foreach ($groups as $group) {
+                foreach ($groups as $group => $alias) {
                     $groups_str .= str_replace(',', '\\,', $group).',';
                 }
                 if ('' != $groups_str) {
