@@ -45,7 +45,7 @@ class EzchimpAllVars {
 
 function ezchimp_config() {
     $configarray = array(
-    "name" => "MAILCHIMP NEWSLETTER",
+    "name" => "MailChimp newsletter",
     "description" => "Integrates with MailChimp. Supports subscribe/unsubscribe, multiple mailing lists and interest groups, multi-language.", //, synchronization
     "version" => "1.20",
     "author" => "AdMod Technologies - www.admod.com",
