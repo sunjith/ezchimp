@@ -580,7 +580,8 @@ function _ezchimp_get_client_subscriptions($client_id, &$ezvars) {
     }
 
     $subscriptions = array();
-    $all_lists = array();
+    // NOTE: Commented on purpose. Un-subscribe from enabled lists only.
+    /* $all_lists = array();
     $params = array('apikey' => $ezvars->config['apikey']);
     $lists_result = _ezchimp_call_mailchimp_api('lists', $params, $ezvars);
     if (!empty($lists_result->data)) {
@@ -590,10 +591,11 @@ function _ezchimp_get_client_subscriptions($client_id, &$ezvars) {
     }
     if ($ezvars->debug > 2) {
         logActivity("_ezchimp_get_client_subscriptions: all_lists - ".print_r($all_lists, true));
-    }
+    } */
 
     foreach ($list_groups as $list => $groups) {
-        unset($all_lists[$list]);
+        // NOTE: Commented on purpose. Un-subscribe from enabled lists only.
+        // unset($all_lists[$list]);
         if (empty($groups)) {
             $subscriptions[] = array('list' => $list);
         } else {
@@ -630,15 +632,18 @@ function _ezchimp_get_client_subscriptions($client_id, &$ezvars) {
             }
             if (!empty($subscription_groupings)) {
                 $subscriptions[] = array('list' => $list, 'grouping' => $subscription_groupings);
+            } else {
+                $subscriptions[] = array('list' => $list, 'unsubscribe' => 1);
             }
         }
     }
-    if ($ezvars->debug > 3) {
+    // NOTE: Commented on purpose. Un-subscribe from enabled lists only.
+    /* if ($ezvars->debug > 3) {
         logActivity("_ezchimp_get_client_subscriptions: remaining all_lists - ".print_r($all_lists, true));
     }
     foreach ($all_lists as $list => $one) {
         $subscriptions[] = array('list' => $list, 'unsubscribe' => 1);
-    }
+    } */
     if ($ezvars->debug > 1) {
         logActivity("_ezchimp_get_client_subscriptions: subscriptions - ".print_r($subscriptions, true));
     }

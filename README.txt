@@ -55,6 +55,7 @@ CREDITS:
 
 CHANGE LOG:
 ----------
+1.21 - Do not un-subscribe from lists that aren't enabled.
 1.20 - 16 Nov 2016: Fix issue with default subscription when adding client.
 1.19 - 17 Aug 2016: New tool to subscribe existing clients with an active hosting account who are not already subscribed to any list/group to all active lists/groups.
 1.18 - 24 Dec 2014: Improve debug messages when listing existing subscriptions
