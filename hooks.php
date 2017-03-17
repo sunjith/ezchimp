@@ -600,40 +600,20 @@ function _ezchimp_get_client_subscriptions($client_id, &$ezvars) {
             $subscriptions[] = array('list' => $list);
         } else {
             $subscription_groupings = array();
-            $all_groups = array();
-            $params['id'] = $list;
-            $groupings = _ezchimp_call_mailchimp_api('listInterestGroupings', $params, $ezvars);
-            if (!empty($groupings)) {
-                foreach ($groupings as $grouping) {
-                    $all_groups[$grouping->name] = 1;
-                }
-            }
-            if ($ezvars->debug > 2) {
-                logActivity("_ezchimp_get_client_subscriptions: all_groups - ".print_r($all_groups, true));
-            }
-            foreach ($groups as $maingroup => $groups) {
-                unset($all_groups[$maingroup]);
-                $groups_str = '';
-                foreach ($groups as $group) {
-                    $groups_str .= str_replace(',', '\\,', $group).',';
-                }
-                if ('' != $groups_str) {
-                    $groups_str = substr($groups_str, 0, -1);
-                    $subscription_groupings[] = array('name' => $maingroup, 'groups' => $groups_str);
-                }
-            }
-            if (!empty($all_groups)) {
-                foreach ($all_groups as $maingroup => $one) {
-                    $subscription_groupings[] = array('name' => $maingroup, 'groups' => '');
-                    if ($ezvars->debug > 3) {
-                        logActivity("_ezchimp_get_client_subscriptions: empty main group - $maingroup");
+            foreach ($groups as $mainGroup => $subGroups) {
+                $subGroupsStr = '';
+                if (!empty($subGroups)) {
+                    foreach ($subGroups as $subGroup) {
+                        $subGroupsStr .= str_replace(',', '\\,', $subGroup) . ',';
+                    }
+                    if ('' != $subGroupsStr) {
+                        $subGroupsStr = substr($subGroupsStr, 0, -1);
                     }
                 }
+                $subscription_groupings[] = array('name' => $mainGroup, 'groups' => $subGroupsStr);
             }
             if (!empty($subscription_groupings)) {
                 $subscriptions[] = array('list' => $list, 'grouping' => $subscription_groupings);
-            } else {
-                $subscriptions[] = array('list' => $list, 'unsubscribe' => 1);
             }
         }
     }
