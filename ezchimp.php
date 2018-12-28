@@ -8,7 +8,7 @@ Author: Sunjith P S
 License: GPLv3
 
 Copyright AdMod Technologies Pvt Ltd
-http://www.admod.com
+www.admod.com www.supportmonk.com www.ezeelogin.com
 
 **********************************************
 */
@@ -32,6 +32,9 @@ development.
 **********************************************
 */
 
+use Illuminate\Database\Capsule\Manager as Capsule;
+require_once(__DIR__."/mailchimp.php");
+
 define('EMAILS_LIMIT', 25);
 
 class EzchimpConf {
@@ -39,48 +42,64 @@ class EzchimpConf {
 }
 class EzchimpAllVars {
     public $debug = 0;
-    public $config = array();
-    public $settings = array();
+    public $config = [];
+    public $settings = [];
 }
 
 function ezchimp_config() {
-    $configarray = array(
-    "name" => "MailChimp newsletter",
-    "description" => "Integrates with MailChimp. Supports subscribe/unsubscribe, multiple mailing lists and interest groups, multi-language.", //, synchronization
-    "version" => "1.22",
-    "author" => "AdMod Technologies - www.admod.com",
-    "language" => "english",
-    "fields" => array(
-        "apikey" => array ("FriendlyName" => "MailChimp API Key", "Type" => "text", "Size" => "100", "Description" => "Enter your MailChimp API key." ),
-        "baseurl" => array ("FriendlyName" => "WHMCS Base URL", "Type" => "text", "Size" => "100", "Description" => "Enter the base URL of your WHMCS. Eg: http://yourcompany.com/whmcs" ),
-        //"unsubscribe" => array ("FriendlyName" => "Unsubscribe all on deactivation", "Type" => "yesno", "Description" => "Unsubscribe all subscribed emails in MailChimp mailing list on deactivation of this module." ),
-        "delete" => array ("FriendlyName" => "Delete newsletter fields on deactivation", "Type" => "yesno", "Description" => "Delete table and newsletter custom fields added by this module on deactivation. If enabled, settings and newsletter subscription statuses will be lost when you activate this module again." ),
-        "debug" => array ("FriendlyName" => "Debug level", "Type" => "dropdown", "Options" => "0,1,2,3,4,5", "Description" => "Lot of debugging messages will be logged in Activity Logs", "Default" => "0" ),
-    ));
-    return $configarray;
+    $config = [
+        "name" => "MailChimp Newsletter",
+        "description" => "Integrates with MailChimp. Supports subscribe/unsubscribe, multiple mailing lists and interest groups, multi-language.", //, synchronization
+        "version" => "3.1",
+        "author" => "SupportMonk - www.supportmonk.com",
+        "language" => "english",
+        "fields" => [
+            "apikey" => [ "FriendlyName" => "MailChimp API Key", "Type" => "text", "Size" => "100", "Description" => "Enter your MailChimp API key." ],
+            "baseurl" => [ "FriendlyName" => "WHMCS Base URL", "Type" => "text", "Size" => "100", "Description" => "Enter the base URL of your WHMCS. Eg: http://yourcompany.com/whmcs" ],
+            "delete" => [ "FriendlyName" => "Delete newsletter fields on deactivation", "Type" => "yesno", "Description" => "Delete table and newsletter custom fields added by this module on deactivation. If enabled, settings and newsletter subscription statuses will be lost when you activate this module again." ],
+            "debug" => [ "FriendlyName" => "Debug level", "Type" => "dropdown", "Options" => "0,1,2,3,4,5", "Description" => "Lot of debugging messages will be logged in Activity Logs", "Default" => "0" ],
+        ]
+    ];
+    return $config;
 }
 
 function module_language_init() {
+    $defaultLang = 'english';
     /* Get WHMCS default language */
-    $result = select_query('tblconfiguration', 'value', array('setting' => 'Language'));
-    $row = mysql_fetch_assoc($result);
-    $default_lang = $row['value'];
-    mysql_free_result($result);
-    $_ADDONLANG = array();
-    $lang_file = dirname(__FILE__) . '/lang/' . strtolower($default_lang) . '.php';
-    if (file_exists($lang_file)) {
-        include($lang_file);
+    try {
+        $rows = Capsule::table('tblconfiguration')
+            ->select('value')
+            ->where('setting', 'Language')
+            ->get();
+        if ($rows[0]) {
+            $defaultLang = $rows[0]->value;
+        }
+    } catch (\Exception $e) {
+        logActivity("module_language_init: ERROR: get language setting: " . $e->getMessage());
+    }
+    $_ADDONLANG = [];
+    $langFile = dirname(__FILE__) . '/lang/' . strtolower($defaultLang) . '.php';
+    if (file_exists($langFile)) {
+        include($langFile);
     } else {
-        logActivity("module_language_init: $lang_file ($default_lang) not found!");
-        $lang_file = dirname(__FILE__) . '/lang/' . $default_lang . '.php';
-        if (file_exists($lang_file)) {
-            include($lang_file);
+        logActivity("module_language_init: $langFile ($defaultLang) not found!");
+        $langFile = dirname(__FILE__) . '/lang/' . $defaultLang . '.php';
+        if (file_exists($langFile)) {
+            include($langFile);
         } else {
-            logActivity("module_language_init: $lang_file ($default_lang) not found! Fall back to English.");
+            logActivity("module_language_init: $langFile ($defaultLang) not found! Fall back to English.");
             include(dirname(__FILE__) . '/lang/english.php');
         }
     }
     return $_ADDONLANG;
+}
+
+function _drop_ezchimp_table() {
+    try {
+        Capsule::schema()->drop('mod_ezchimp');
+    } catch (\Exception $e) {
+        logActivity("_drop_ezchimp_table: ERROR: " . $e->getMessage());
+    }
 }
 
 function ezchimp_activate() {
@@ -88,61 +107,164 @@ function ezchimp_activate() {
     $LANG = module_language_init();
 
     # Create table and custom client fields for newsletter
-	$query = "CREATE TABLE `mod_ezchimp` (`setting` VARCHAR(30) NOT NULL, `value` TEXT NOT NULL DEFAULT '', PRIMARY KEY (`setting`) )";
-	if (!($result = mysql_query($query))) {
-        return array('status'=>'error','description'=>'Could not create table: '.mysql_error());
+    if (! Capsule::schema()->hasTable('mod_ezchimp')) {
+        try {
+            Capsule::schema()->create('mod_ezchimp', function ($table) {
+                /** @var \Illuminate\Database\Schema\Blueprint $table */
+                $table->string('setting', 30);
+                $table->text('value')->default('');
+                $table->primary('setting');
+            });
+        } catch (\Exception $e) {
+            logActivity("ezchimp_activate: ERROR: create table: " . $e->getMessage());
+            return ['status' => 'error', 'description' => 'Could not create table: ' . $e->getMessage()];
+        }
+        /* Default settings */
+        $settings = [
+            ['setting' => 'format_select', 'value' => 'on'],
+            ['setting' => 'interest_select', 'value' => 'on'],
+            ['setting' => 'subscribe_contacts', 'value' => 'on'],
+            ['setting' => 'showorder', 'value' => 'on'],
+            ['setting' => 'delete_member', 'value' => ''],
+            ['setting' => 'default_subscribe', 'value' => ''],
+            ['setting' => 'default_format', 'value' => 'html'],
+            ['setting' => 'default_subscribe_contact', 'value' => ''],
+            ['setting' => 'activelists', 'value' => ''],
+            ['setting' => 'affiliatelists', 'value' => ''],
+            ['setting' => 'listnames', 'value' => ''],
+            ['setting' => 'groupings', 'value' => ''],
+            ['setting' => 'unsubscribe_groupings', 'value' => ''],
+            ['setting' => 'interestmaps', 'value' => '']
+        ];
+        if ($ezconf->debug > 1) {
+            logActivity("ezchimp_activate: module settings init - " . print_r($settings, true));
+        }
+        try {
+            Capsule::table('mod_ezchimp')->insert($settings);
+        } catch (\Exception $e) {
+            logActivity("ezchimp_activate: ERROR: module settings init: " . $e->getMessage());
+            _drop_ezchimp_table();
+            return ['status' => 'error', 'description' => 'Could not add default settings: ' . $e->getMessage()];
+        }
+    } else {
+        logActivity("ezchimp_activate: mod_ezchimp table already exists");
     }
-	/* Default settings */
-	$settings = array(
-				'format_select' => 'on',
-				'interest_select' => 'on',
-				'subscribe_contacts' => 'on',
-				'showorder' => 'on',
-				'double_optin' => 'on',
-				'default_format' => 'html'
-				);
-	if ($ezconf->debug > 1) {
-		logActivity("ezchimp_activate: module settings init - ".print_r($settings, true));
-	}
-	foreach ($settings as $setting => $value) {
-		$query = "INSERT INTO `mod_ezchimp` (`setting`, `value`) VALUES ('$setting', '$value')";
-		if (!($result = mysql_query($query))) {
-            mysql_query("DROP TABLE `mod_ezchimp`");
-            return array('status'=>'error','description'=>'Could not add default settings');
+    /* Email format custom field */
+    try {
+        $count = Capsule::table('tblcustomfields')
+            ->where([
+                [ 'type', '=', 'client' ],
+                [ 'fieldtype', '=', 'dropdown' ],
+                [ 'sortorder', '=', 46307 ],
+            ])
+            ->count();
+    } catch (\Exception $e) {
+        logActivity("ezchimp_activate: ERROR: check if email format custom field exists: " . $e->getMessage());
+        _drop_ezchimp_table();
+        return [ 'status' => 'error', 'description' => 'Could not check email format custom field: ' . $e->getMessage() ];
+    }
+	if ($count > 0) {
+        try {
+            Capsule::table('tblcustomfields')
+                ->where([
+                    [ 'type', '=', 'client' ],
+                    [ 'fieldtype', '=', 'dropdown' ],
+                    [ 'sortorder', '=', 46307 ]
+                ])
+                ->update([
+                    'fieldname' => $LANG['email_format'],
+                    'adminonly' => '',
+                    'showorder' => 'on'
+                ]);
+        } catch (\Exception $e) {
+            logActivity("ezchimp_activate: ERROR: update email format custom field 1: " . $e->getMessage());
+            _drop_ezchimp_table();
+            return [ 'status' => 'error', 'description' => 'Could not update email format custom field: ' . $e->getMessage() ];
+        }
+	} else {
+        try {
+            Capsule::table('tblcustomfields')
+                ->insert([
+                    'type' => 'client',
+                    'relid' => 0,
+                    'fieldname' => $LANG['email_format'],
+                    'fieldtype' => 'dropdown',
+                    'description' => $LANG['email_format_desc'],
+                    'fieldoptions' => 'html,text',
+                    'regexpr' => '',
+                    'adminonly' => '',
+                    'required' => '',
+                    'showorder' => 'on',
+                    'showinvoice' => '',
+                    'sortorder' => 46307
+                ]);
+        } catch (\Exception $e) {
+            logActivity("ezchimp_activate: ERROR: insert email format custom field: " . $e->getMessage());
+            _drop_ezchimp_table();
+            return [ 'status' => 'error', 'description' => 'Could not insert email format custom field: ' . $e->getMessage() ];
         }
 	}
-
-    $query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='dropdown' AND `sortorder`=46307"; // `fieldname`='Email format'
-	$result = mysql_query($query);
-	if (mysql_num_rows($result) > 0) {
-		$query = "UPDATE `tblcustomfields` SET `adminonly`='', `showorder`='on' WHERE `type`='client' AND `fieldname`='".mysql_real_escape_string($LANG['email_format'])."' AND `fieldtype`='dropdown' AND `sortorder`=46307";
-	} else {
-		$query = "INSERT INTO `tblcustomfields` (`type`, `relid`, `fieldname`, `fieldtype`, `description`, `fieldoptions`, `regexpr`, `adminonly`, `required`, `showorder`, `showinvoice`, `sortorder`) VALUES ('client', 0, '".mysql_real_escape_string($LANG['email_format'])."', 'dropdown', '".mysql_real_escape_string($LANG['email_format_desc'])."', 'HTML,Mobile,Text', '', '', '', 'on', '', 46307)";
-	}
-	mysql_free_result($result);
-	if (!($result = mysql_query($query))) {
-        mysql_query("DROP TABLE `mod_ezchimp`");
-        return array('status'=>'error','description'=>'Could not add custom field');
+    /* Subscribe all contacts custom field */
+    try {
+        $count = Capsule::table('tblcustomfields')
+            ->where([
+                [ 'type', '=', 'client' ],
+                [ 'fieldtype', '=', 'tickbox' ],
+                [ 'sortorder', '=', 46309 ],
+            ])
+            ->count();
+    } catch (\Exception $e) {
+        logActivity("ezchimp_activate: ERROR: check if subscribe all contacts custom field exists: " . $e->getMessage());
+        _drop_ezchimp_table();
+        return [ 'status' => 'error', 'description' => 'Could not check subscribe all contacts custom field: ' . $e->getMessage() ];
+    }
+    if ($count > 0) {
+        try {
+            Capsule::table('tblcustomfields')
+                ->where([
+                    [ 'type', '=', 'client' ],
+                    [ 'fieldtype', '=', 'tickbox' ],
+                    [ 'sortorder', '=', 46309 ]
+                ])
+                ->update([
+                    'fieldname' => $LANG['subscribe_all_contacts'],
+                    'adminonly' => '',
+                    'showorder' => 'on'
+                ]);
+        } catch (\Exception $e) {
+            logActivity("ezchimp_activate: ERROR: update subscribe all contacts custom field 1: " . $e->getMessage());
+            _drop_ezchimp_table();
+            return [ 'status' => 'error', 'description' => 'Could not update subscribe all contacts custom field: ' . $e->getMessage() ];
+        }
+    } else {
+        try {
+            Capsule::table('tblcustomfields')
+                ->insert([
+                    'type' => 'client',
+                    'relid' => 0,
+                    'fieldname' => $LANG['subscribe_all_contacts'],
+                    'fieldtype' => 'tickbox',
+                    'description' => $LANG['subscribe_all_contacts_desc'],
+                    'fieldoptions' => '',
+                    'regexpr' => '',
+                    'adminonly' => '',
+                    'required' => '',
+                    'showorder' => 'on',
+                    'showinvoice' => '',
+                    'sortorder' => 46309
+                ]);
+        } catch (\Exception $e) {
+            logActivity("ezchimp_activate: ERROR: insert subscribe all contacts custom field: " . $e->getMessage());
+            _drop_ezchimp_table();
+            return [ 'status' => 'error', 'description' => 'Could not insert subscribe all contacts custom field: ' . $e->getMessage() ];
+        }
     }
 
-    $query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46309"; // `fieldname`='Subscribe all contacts'
-	$result = mysql_query($query);
-	if (mysql_num_rows($result) > 0) {
-		$query = "UPDATE `tblcustomfields` SET `adminonly`='', `showorder`='on' WHERE `type`='client' AND `fieldname`='".mysql_real_escape_string($LANG['subscribe_all_contacts'])."' AND `fieldtype`='tickbox' AND `sortorder`=46309";
-	} else {
-		$query = "INSERT INTO `tblcustomfields` (`type`, `relid`, `fieldname`, `fieldtype`, `description`, `fieldoptions`, `regexpr`, `adminonly`, `required`, `showorder`, `showinvoice`, `sortorder`) VALUES ('client', 0, '".mysql_real_escape_string($LANG['subscribe_all_contacts'])."', 'tickbox', '".mysql_real_escape_string($LANG['subscribe_all_contacts_desc'])."', '', '', '', '', 'on', '', 46309)";
-	}
-	mysql_free_result($result);
-    if (!($result = mysql_query($query))) {
-        mysql_query("DROP TABLE `mod_ezchimp`");
-        return array('status'=>'error','description'=>'Could not add custom field');
-    }
-    return array('status'=>'success','description'=>'ezchimp - Mailchimp Newsletter addon module activated');
+    return [ 'status'=>'success','description'=>'ezchimp - Mailchimp Newsletter add-on module activated' ];
 }
 
 function ezchimp_deactivate() {
     $ezconf = new EzchimpConf();
-    $LANG = module_language_init();
 
 	/* Module vars */
 	$config = _ezchimp_config($ezconf);
@@ -151,72 +273,171 @@ function ezchimp_deactivate() {
 	}
 
 	if (isset($config['delete']) && ('on' == $config['delete'])) {
-		# Remove table and custom client fields
-		$query = "DROP TABLE `mod_ezchimp`";
-		mysql_query($query);
-
-		$query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='dropdown' AND `sortorder`=46307"; // `fieldname`='Email format'
-		$result = mysql_query($query);
-		$emailformat_fieldid = 0;
-		if ($row = mysql_fetch_assoc($result)) {
-			$emailformat_fieldid = $row['id'];
-		}
-		mysql_free_result($result);
+		# Remove table, custom client fields and custom fields
+        _drop_ezchimp_table();
+        /* Email format custom field */
+        $emailFormatFieldId = 0;
+        try {
+            $rows = Capsule::table('tblcustomfields')
+                ->select('id')
+                ->where([
+                    [ 'type', '=', 'client' ],
+                    [ 'fieldtype', '=', 'dropdown' ],
+                    [ 'sortorder', '=', 46307 ]
+                ])
+                ->get();
+            if ($rows[0]) {
+                $emailFormatFieldId = $rows[0]->id;
+            }
+        } catch (\Exception $e) {
+            logActivity("ezchimp_deactivate: ERROR: get email format custom field ID: " . $e->getMessage());
+        }
 		if ($ezconf->debug > 1) {
-			logActivity("ezchimp_deactivate: emailformat_fieldid - $emailformat_fieldid");
+			logActivity("ezchimp_deactivate: emailformat_fieldid - $emailFormatFieldId");
 		}
-		if ($emailformat_fieldid > 0) {
-			$query = "DELETE FROM `tblcustomfieldsvalues` WHERE `fieldid`=$emailformat_fieldid";
-			mysql_query($query);
+		if ($emailFormatFieldId > 0) {
+            try {
+                Capsule::table('tblcustomfieldsvalues')
+                    ->where([
+                        [ 'fieldid', '=', $emailFormatFieldId ]
+                    ])
+                    ->delete();
+            } catch (\Exception $e) {
+                logActivity("ezchimp_deactivate: ERROR: delete email format custom field values: " . $e->getMessage());
+            }
 		}
-		$query = "DELETE FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='dropdown' AND `sortorder`=46307"; // `fieldname`='Email format'
-		mysql_query($query);
-
-		$query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46309"; // `fieldname`='Subscribe all contacts'
-		$result = mysql_query($query);
-		$subscribe_contacts_fieldid = 0;
-		if ($row = mysql_fetch_assoc($result)) {
-			$subscribe_contacts_fieldid = $row['id'];
-		}
-		mysql_free_result($result);
-		if ($ezconf->debug > 1) {
-			logActivity("ezchimp_deactivate: subscribe_contacts_fieldid - $subscribe_contacts_fieldid");
-		}
-		if ($subscribe_contacts_fieldid > 0) {
-			$query = "DELETE FROM `tblcustomfieldsvalues` WHERE `fieldid`=$subscribe_contacts_fieldid";
-			mysql_query($query);
-		}
-		$query = "DELETE FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46309"; // `fieldname`='Subscribe all contacts'
-		mysql_query($query);
-
-		$query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306";
-		$result = mysql_query($query);
-		$fieldids = array();
-		while ($row = mysql_fetch_assoc($result)) {
-			$fieldids[] = $row['id'];
-		}
-		mysql_free_result($result);
-		if ($ezconf->debug > 1) {
-			logActivity("ezchimp_deactivate: fieldids - ".print_r($fieldids, true));
-		}
-		if (!empty($fieldids)) {
-			$fieldsids_str = implode(',', $fieldids);
-			$query = "DELETE FROM `tblcustomfieldsvalues` WHERE `fieldid` IN ($fieldsids_str)";
-			mysql_query($query);
-		}
-		$query = "DELETE FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306";
-		mysql_query($query);
+        try {
+            Capsule::table('tblcustomfields')
+                ->where([
+                    [ 'id', '=', $emailFormatFieldId ]
+                ])
+                ->delete();
+        } catch (\Exception $e) {
+            logActivity("ezchimp_deactivate: ERROR: delete email format custom field: " . $e->getMessage());
+        }
+        /* Subscribe contacts custom field */
+        $subscribeContactsFieldId = 0;
+        try {
+            $rows = Capsule::table('tblcustomfields')
+                ->select('id')
+                ->where([
+                    [ 'type', '=', 'client' ],
+                    [ 'fieldtype', '=', 'tickbox' ],
+                    [ 'sortorder', '=', 46309 ]
+                ])
+                ->get();
+            if ($rows[0]) {
+                $subscribeContactsFieldId = $rows[0]->id;
+            }
+        } catch (\Exception $e) {
+            logActivity("ezchimp_deactivate: ERROR: get subscribe contacts custom field ID: " . $e->getMessage());
+        }
+        if ($ezconf->debug > 1) {
+            logActivity("ezchimp_deactivate: subscribe_contacts_fieldid - $subscribeContactsFieldId");
+        }
+        if ($subscribeContactsFieldId > 0) {
+            try {
+                Capsule::table('tblcustomfieldsvalues')
+                    ->where([
+                        [ 'fieldid', '=', $subscribeContactsFieldId ]
+                    ])
+                    ->delete();
+            } catch (\Exception $e) {
+                logActivity("ezchimp_deactivate: ERROR: delete subscribe contacts custom field values: " . $e->getMessage());
+            }
+        }
+        try {
+            Capsule::table('tblcustomfields')
+                ->where([
+                    [ 'id', '=', $subscribeContactsFieldId ]
+                ])
+                ->delete();
+        } catch (\Exception $e) {
+            logActivity("ezchimp_deactivate: ERROR: delete subscribe contacts custom field: " . $e->getMessage());
+        }
+        /* Newsletter custom fields */
+        $fieldIds = [];
+        try {
+            $rows = Capsule::table('tblcustomfields')
+                ->select('id')
+                ->where([
+                    [ 'type', '=', 'client' ],
+                    [ 'fieldtype', '=', 'tickbox' ],
+                    [ 'sortorder', '=', 46306 ]
+                ])
+                ->get();
+            foreach ($rows as $row) {
+                $fieldIds[] = $row->id;
+            }
+        } catch (\Exception $e) {
+            logActivity("ezchimp_deactivate: ERROR: get newsletters custom field IDs: " . $e->getMessage());
+        }
+        if ($ezconf->debug > 1) {
+            logActivity("ezchimp_deactivate: newsletter custom field IDs - " . implode(',', $fieldIds));
+        }
+        if (!empty($fieldIds)) {
+            try {
+                Capsule::table('tblcustomfieldsvalues')
+                    ->whereIn('fieldid', $fieldIds)
+                    ->delete();
+            } catch (\Exception $e) {
+                logActivity("ezchimp_deactivate: ERROR: delete newsletter custom fields values: " . $e->getMessage());
+            }
+        }
+        try {
+            Capsule::table('tblcustomfields')
+                ->whereIn('id', $fieldIds)
+                ->delete();
+        } catch (\Exception $e) {
+            logActivity("ezchimp_deactivate: ERROR: delete newsletter custom fields: " . $e->getMessage());
+        }
 	} else {
-		$query = "UPDATE `tblcustomfields` SET `adminonly`='on', `showorder`='' WHERE `type`='client' AND `fieldname`='".mysql_real_escape_string($LANG['subscribe_all_contacts'])."' AND `fieldtype`='tickbox' AND `sortorder`=46309";
-		mysql_query($query);
-		$query = "UPDATE `tblcustomfields` SET `adminonly`='on', `showorder`='' WHERE `type`='client' AND `fieldname`='".mysql_real_escape_string($LANG['email_format'])."' AND `fieldtype`='dropdown' AND `sortorder`=46307";
-		mysql_query($query);
-		$query = "UPDATE `tblcustomfields` SET `adminonly`='on', `showorder`='' WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306";
-		mysql_query($query);
+        try {
+            Capsule::table('tblcustomfields')
+                ->where([
+                    [ 'type', '=', 'client' ],
+                    [ 'fieldtype', '=', 'dropdown' ],
+                    [ 'sortorder', '=', 46307 ]
+                ])
+                ->update([
+                    'adminonly' => 'on',
+                    'showorder' => ''
+                ]);
+        } catch (\Exception $e) {
+            logActivity("ezchimp_deactivate: ERROR: update email format custom field 2: " . $e->getMessage());
+        }
+        try {
+            Capsule::table('tblcustomfields')
+                ->where([
+                    [ 'type', '=', 'client' ],
+                    [ 'fieldtype', '=', 'tickbox' ],
+                    [ 'sortorder', '=', 46309 ]
+                ])
+                ->update([
+                    'adminonly' => 'on',
+                    'showorder' => ''
+                ]);
+        } catch (\Exception $e) {
+            logActivity("ezchimp_deactivate: ERROR: update subscribe all contacts custom field 2: " . $e->getMessage());
+        }
+        try {
+            Capsule::table('tblcustomfields')
+                ->where([
+                    [ 'type', '=', 'client' ],
+                    [ 'fieldtype', '=', 'tickbox' ],
+                    [ 'sortorder', '=', 46306 ]
+                ])
+                ->update([
+                    'adminonly' => 'on',
+                    'showorder' => ''
+                ]);
+        } catch (\Exception $e) {
+            logActivity("ezchimp_deactivate: ERROR: update newsletter custom fields: " . $e->getMessage());
+        }
 	}
 
     # Return Result
-    return array('status'=>'success','description'=>'Thank you for using ezchimp. - www.admod.com');
+    return [ 'status' => 'success', 'description' => 'Thank you for using ezchimp. - www.supportmonk.com' ];
 
 }
 
@@ -230,7 +451,8 @@ function ezchimp_output($vars) {
     $modulelink = $vars['modulelink'];
     $version = $vars['version'];
     $apikey = $vars['apikey'];
-    $LANG = $vars['_lang'];
+    // $LANG = $vars['_lang'];
+    $LANG = module_language_init();
 
     if (isset($vars['debug'])) {
     	$ezconf->debug = intval($vars['debug']);
@@ -240,10 +462,18 @@ function ezchimp_output($vars) {
     }
 
     /* Get WHMCS version */
-    $result = select_query('tblconfiguration', 'value', array('setting' => 'Version'));
-    $row = mysql_fetch_assoc($result);
-    $whmcs_version = $row['value'];
-    mysql_free_result($result);
+    $whmcs_version = 'Unknown';
+    try {
+        $rows = Capsule::table('tblconfiguration')
+            ->select('value')
+            ->where('setting', 'Version')
+            ->get();
+        if ($rows[0]) {
+            $whmcs_version = $rows[0]->value;
+        }
+    } catch (\Exception $e) {
+        logActivity("ezchimp_output: ERROR: get WHMCS version: " . $e->getMessage());
+    }
 
 	$settings = _ezchimp_settings($ezconf);
     if ($ezconf->debug > 0) {
@@ -263,14 +493,15 @@ function ezchimp_output($vars) {
             <li><a href="'.$modulelink.'&page=status">'.$LANG['status'].'</a></li>
             <li><a href="'.$modulelink.'&page=tools">'.$LANG['tools'].'</a></li>
             <li><a href="'.$modulelink.'&page=autosubscribe">'.$LANG['auto_subscribe'].'</a></li>
+            <li><a href="'.$modulelink.'&page=affiliatelists">'.$LANG['affiliate_lists'].'</a></li>
         </ul></div>';
 //    }
 
     echo '<p>ezchimp '.$version.' [WHMCS '.$whmcs_version.']</p>';
     echo '<p>'.$LANG['intro'].'</p>
     <p>'.$LANG['description'].'</p>
-    <p>'.$LANG['documentation'].' <a href="http://blog.admod.com/2012/01/23/ezchimp-whmcs-mailchimp-integration/" target="_blank">'.$LANG['here'].'</a></p>
-    <p>Copyright &copy; AdMod Technologies - <a href="http://www.admod.com/" target="_blank">www.admod.com</a></p>';
+    <p>'.$LANG['documentation'].' <a href="http://blog.supportmonk.com/whmcs-addon-modules/ezchimp-whmcs-mailchimp-integration" target="_blank">'.$LANG['here'].'</a></p>
+    <p>Copyright &copy; SupportMonk - <a href="http://www.supportmonk.com/" target="_blank">www.supportmonk.com</a></p>';
 
     if (empty($apikey)) {
 		echo '<div class="errorbox"><strong>'.$LANG['set_apikey'].' <a href="configaddonmods.php">'.$LANG['module_config'].'</a></strong></div>';
@@ -297,13 +528,14 @@ function ezchimp_output($vars) {
                 } else if (isset($_SESSION['seachfield'])) {
                     $search_field = $_SESSION['seachfield'];
                 }
-                if (!isset($search_field) || !in_array($search_field, array('email', 'firstname', 'lastname'))) {
+                if (!isset($search_field) || !in_array($search_field, [ 'email', 'firstname', 'lastname' ])) {
                     $search_field = 'email';
                 }
                 $email_selected = $firstname_selected = $lastname_selected = '';
                 ${$search_field.'_selected'} = ' selected="selected"';
 
                 /* Find total no. or rows */
+                $query_params = [];
                 if ('on' == $settings['subscribe_contacts']) {
                     $query_from = "FROM `tblclients` AS `cl` LEFT JOIN `tblcontacts` AS `ct` ON `cl`.`id` = `ct`.`userid`";
                 } else {
@@ -311,19 +543,32 @@ function ezchimp_output($vars) {
                 }
                 if ('' != $search_text) {
                     if ('on' == $settings['subscribe_contacts']) {
-                        $query_from .= " WHERE `cl`.`$search_field` LIKE '%".mysql_real_escape_string($search_text)."%' OR `ct`.`$search_field` LIKE '%".mysql_real_escape_string($search_text)."%'";
+                        $query_from .= " WHERE `cl`.`$search_field` LIKE :search_text1 OR `ct`.`$search_field` LIKE :search_text";
+                        $query_params[':search_text1'] = '%' . $search_text . '%';
                     } else {
-                        $query_from .= " WHERE `cl`.`$search_field` LIKE '%".mysql_real_escape_string($search_text)."%'";
+                        $query_from .= " WHERE `cl`.`$search_field` LIKE :search_text";
                     }
+                    $query_params[':search_text'] = '%' . $search_text . '%';
                 }
                 $query = "SELECT count(*) AS `total` $query_from";
                 if ($ezconf->debug > 4) {
-                    logActivity("ezchimp_output: count query - $query");
+                    logActivity("ezchimp_output: count query, params - $query, ".print_r($query_params, true));
                 }
-                $result = mysql_query($query);
-                $row = mysql_fetch_assoc($result);
-                $total = $row['total'];
-                mysql_free_result($result);
+                $total = 0;
+                $pdo = Capsule::connection()->getPdo();
+                try {
+                    $statement = $pdo->prepare($query);
+                    if ($statement->execute($query_params)) {
+                        $row = $statement->fetch(PDO::FETCH_ASSOC);
+                        $total = $row['total'];
+                    } else {
+                        logActivity("ezchimp_output: count query failed");
+                    }
+                } catch (PDOException $e) {
+                    logActivity("ezchimp_output: count query exception: " . $e->getMessage());
+                }
+                $statement->closeCursor();
+
                 $pages = ceil($total / EMAILS_LIMIT);
 	    		if ($ezconf->debug > 3) {
 	    			logActivity("ezchimp_output: status - page_number, total, pages : $page_number, $total, $pages");
@@ -334,11 +579,11 @@ function ezchimp_output($vars) {
                 echo '<form action="'.$modulelink.'&page=status" name="SearchForm" method="POST">
                         <input type="text" name="searchtext" value="'.htmlspecialchars($search_text).'" />
                             <select name="seachfield">
-                                <option value="email"'.$email_selected.'>Email</option>
-                                <option value="firstname"'.$firstname_selected.'>Firstname</option>
-                                <option value="lastname"'.$lastname_selected.'>Lastname</option>
+                                <option value="email"'.$email_selected.'>'.$LANG['email'].'</option>
+                                <option value="firstname"'.$firstname_selected.'>'.$LANG['firstname'].'</option>
+                                <option value="lastname"'.$lastname_selected.'>'.$LANG['lastname'].'</option>
                             </select>
-                        <input type="submit" name="search" value="Search" />
+                        <input type="submit" name="search" value="'.$LANG['search'].'" />
                     </form>';
 
                 /* Pagination links */
@@ -383,11 +628,11 @@ function ezchimp_output($vars) {
     			$activelists = unserialize($settings['activelists']);
 	    		$listnames = unserialize($settings['listnames']);
     			if ($ezconf->debug > 2) {
-    				logActivity("ezchimp_output: activelists - ".print_r($activelists, true));
-    				logActivity("ezchimp_output: listnames - ".print_r($listnames, true));
+    				logActivity("ezchimp_output: activelists 1 - ".print_r($activelists, true));
+    				logActivity("ezchimp_output: listnames 1 - ".print_r($listnames, true));
     			}
 
-    			$emails = array();
+    			$emails = [];
                 $offset = ($page_number - 1) * EMAILS_LIMIT;
                 if ('on' == $settings['subscribe_contacts']) {
                     $query = "SELECT `cl`.`id` AS `client_id`, `cl`.`firstname` AS `client_firstname`, `cl`.`lastname` AS `client_lastname`, `cl`.`email` AS `client_email`, `ct`.`id` AS `contact_id`, `ct`.`firstname` AS `contact_firstname`, `ct`.`lastname` AS `contact_lastname`, `ct`.`email` AS `contact_email` $query_from ORDER BY `client_id` ASC, `contact_id` ASC LIMIT $offset, " . EMAILS_LIMIT;
@@ -397,61 +642,83 @@ function ezchimp_output($vars) {
 	    		if ($ezconf->debug > 4) {
 	    			logActivity("ezchimp_output: query - $query");
 	    		}
-	    		$result = mysql_query($query);
-	    		while ($row = mysql_fetch_assoc($result)) {
-	    			$clientid = $row['client_id'];
-                    if (!isset($emails[$row['client_email']]) && (('' == $search_text) || (stripos($row['client_'.$search_field], $search_text) !== false))) {
-                        $emails[$row['client_email']]['clientid'] = $clientid;
-                        $emails[$row['client_email']]['firstname'] = $row['client_firstname'];
-                        $emails[$row['client_email']]['lastname'] = $row['client_lastname'];
+                try {
+                    $statement2 = $pdo->prepare($query);
+                    if ($statement2->execute($query_params)) {
+                        while ($row = $statement2->fetch(PDO::FETCH_ASSOC)) {
+                            $clientId = $row['client_id'];
+                            if (!isset($emails[$row['client_email']]) && (('' == $search_text) || (stripos($row['client_'.$search_field], $search_text) !== false))) {
+                                $emails[$row['client_email']]['clientid'] = $clientId;
+                                $emails[$row['client_email']]['firstname'] = $row['client_firstname'];
+                                $emails[$row['client_email']]['lastname'] = $row['client_lastname'];
+                            }
+                            if (!empty($row['contact_id']) && (('' == $search_text) || (stripos($row['contact_'.$search_field], $search_text) !== false))) {
+                                $emails[$row['contact_email']]['clientid'] = $clientId;
+                                $emails[$row['contact_email']]['contactid'] = $row['contact_id'];
+                                $emails[$row['contact_email']]['firstname'] = $row['contact_firstname'];
+                                $emails[$row['contact_email']]['lastname'] = $row['contact_lastname'];
+                            }
+                        }
+                    } else {
+                        logActivity("ezchimp_output: select query failed");
                     }
-                    if (!empty($row['contact_id']) && (('' == $search_text) || (stripos($row['contact_'.$search_field], $search_text) !== false))) {
-                        $emails[$row['contact_email']]['clientid'] = $clientid;
-	    			    $emails[$row['contact_email']]['contactid'] = $row['contact_id'];
-                        $emails[$row['contact_email']]['firstname'] = $row['contact_firstname'];
-                        $emails[$row['contact_email']]['lastname'] = $row['contact_lastname'];
-                    }
-	    		}
-                mysql_free_result($result);
+                    $statement2->closeCursor();
+                } catch (PDOException $e) {
+                    logActivity("ezchimp_output: select query exception: " . $e->getMessage());
+                }
 	    		if ($ezconf->debug > 4) {
 	    			logActivity("ezchimp_output: emails - ".print_r($emails, true));
 	    		}
-	    		$email_statuses = array();
+	    		$email_statuses = [];
                 $email_addresses = array_keys($emails);
 
                 foreach ($activelists as $listid => $groups) {
-                    $params = array('apikey' => $apikey, 'id' => $listid, 'email_address' => $email_addresses);
-                    $memberinfo = _ezchimp_mailchimp_api('listMemberInfo', $params, $ezconf);
+                    $params = [ 'apikey' => $apikey, 'id' => $listid, 'email_addresses' => $email_addresses ];
+                    $members = _ezchimp_listMemberInfo($params, $ezvars);
                     if ($ezconf->debug > 4) {
-                        logActivity("ezchimp_output: memberinfo - " . print_r($memberinfo, true));
+                        logActivity("ezchimp_output: members - " . print_r($members, true));
                     }
                     $i = 0;
-                    if (isset($memberinfo->data)) {
-                        foreach ($memberinfo->data as $entry) {
-                            if (isset($entry->email)) {
-                                $email = $entry->email;
-                                if (!isset($email_statuses[$email])) {
-                                    $email_statuses[$email] = $emails[$email];
-                                }
-                                $email_statuses[$email]['subscriptions'][$listid] = array();
-                                $email_statuses[$email]['subscriptions'][$listid]['format'] = isset($entry->email_type) ? $entry->email_type : 'NA';
-                                $email_statuses[$email]['subscriptions'][$listid]['status'] = isset($entry->status) ? $entry->status : 'NA';
-                                $email_statuses[$email]['subscriptions'][$listid]['rating'] = isset($entry->member_rating) ? $entry->member_rating . ' / 5' : 'NA';
-                                $groups_str = '';
-                                if (!empty($entry->merges->GROUPINGS)) {
-                                    foreach ($entry->merges->GROUPINGS as $grouping) {
-                                        if (!empty($grouping->groups)) {
-                                            $groups_str .= $grouping->name . ' > ' . $grouping->groups . '<br />';
+                    if (!empty($members)) {
+                        foreach ($members as $entry) {
+                            if (isset($entry->email_address)) {
+                                if ("subscribed" === $entry->status) {
+                                    $email = $entry->email_address;
+                                    if (!isset($email_statuses[$email])) {
+                                        $email_statuses[$email] = $emails[$email];
+                                    }
+                                    $email_statuses[$email]['subscriptions'][$listid] = [];
+                                    $email_statuses[$email]['subscriptions'][$listid]['format'] = isset($entry->email_type) ? $entry->email_type : 'NA';
+                                    $email_statuses[$email]['subscriptions'][$listid]['status'] = isset($entry->status) ? $entry->status : 'NA';
+                                    $email_statuses[$email]['subscriptions'][$listid]['rating'] = isset($entry->member_rating) ? $entry->member_rating . ' / 5' : 'NA';
+                                    $groups_str = '';
+                                    $interestmaps = unserialize($ezvars->settings['interestmaps']);
+                                    $interestmap = $interestmaps[$listid];
+                                    if ($ezvars->debug > 3) {
+                                        logActivity("ezchimp_output: interestmap:" . print_r($interestmap, 1));
+                                    }
+                                    if (!empty($entry->interests)) {
+                                        $interests = get_object_vars($entry->interests);
+                                        if ($ezvars->debug > 3) {
+                                            logActivity("ezchimp_output: interests:" . print_r($interests, 1));
+                                        }
+                                        foreach ($interests as $interest_id => $subscribed) {
+                                            if ($subscribed) {
+                                                foreach ($interestmap as $key => $id) {
+                                                    if ($id === $interest_id) {
+                                                        $groups_str .= str_replace('^:', ' > ', $key) . '<br />';
+                                                        break;
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
-                                }
-                                $email_statuses[$email]['subscriptions'][$listid]['groups'] = $groups_str;
-                            } else if (isset($entry->email_address) && isset($entry->error)) {
-                                if ($ezconf->debug > 1) {
-                                    logActivity("ezchimp_output: status ($listid) - " . $entry->error);
+                                    $email_statuses[$email]['subscriptions'][$listid]['groups'] = $groups_str;
+                                } else if ($debug > 1) {
+                                    logActivity("ezchimp_output: status ($listid) - Unsubscribed email ($i) - " . $entry->email_address);
                                 }
                             } else {
-                                logActivity("ezchimp_output: status ($listid) - Invalid MemberInfo entry ($i)");
+                                logActivity("ezchimp_output: status ($listid) - Invalid MemberInfo entry ($i) - " . print_r($entry, 1));
                             }
                             $i++;
                         }
@@ -470,7 +737,7 @@ function ezchimp_output($vars) {
                 }
 
                 /* Sort results */
-                $clid = $ctid = array();
+                $clid = $ctid = [];
                 foreach ($email_statuses as $email => $info) {
                     $clid[$email] = $info['clientid'];
                     $ctid[$email] = isset($info['contactid']) ? $info['contactid'] : 0;
@@ -565,142 +832,249 @@ function ezchimp_output($vars) {
 		    			if ($ezconf->debug > 1) {
 		    				logActivity("ezchimp_output: tools - $action");
 		    			}
+                        $optin_only = false;
                         $hosting_active = false;
-                        if ('subscribe_empty_hosting_active' == $action) {
+                        $include_inactive = false;
+                        if ('subscribe_empty_optin' == $action) {
                             $action = 'subscribe_empty';
+                            $optin_only = true;
+                        } else if ('subscribe_empty_all_optin' == $action) {
+                            $action = 'subscribe_empty';
+                            $optin_only = true;
+                            $include_inactive = true;
+                        } else if ('subscribe_empty_hosting_active' == $action) {
+                            $action = 'subscribe_empty';
+                            $hosting_active = true;
+                        } else if ('subscribe_empty_hosting_active_optin' == $action) {
+                            $action = 'subscribe_empty';
+                            $optin_only = true;
                             $hosting_active = true;
                         }
 		    			switch ($action) {
 		    				case 'subscribe_empty':
-								$fieldids = array();
-								$result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'tickbox', 'sortorder' => 46306));
-								while ($row = mysql_fetch_assoc($result)) {
-									$fieldids[] = $row['id'];
-								}
-								mysql_free_result($result);
-
-                                if (!empty($fieldids)) {
-                                    $subscribe_contacts_fieldid = 0;
-                                    $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'tickbox', 'sortorder' => 46309));
-                                    if ($row = mysql_fetch_assoc($result)) {
-                                        $subscribe_contacts_fieldid = $row['id'];
+								$fieldIds = [];
+                                try {
+                                    $rows = Capsule::table('tblcustomfields')
+                                        ->select('id')
+                                        ->where([
+                                            [ 'type', '=', 'client' ],
+                                            [ 'fieldtype', '=', 'tickbox' ],
+                                            [ 'sortorder', '=', 46306 ]
+                                        ])
+                                        ->get();
+                                    foreach ($rows as $row) {
+                                        $fieldIds[] = $row->id;
                                     }
-                                    mysql_free_result($result);
+                                    if ($ezconf->debug > 2) {
+                                        logActivity("ezchimp_output: fieldids - " . implode(',', $fieldIds));
+                                    }
+                                } catch (\Exception $e) {
+                                    logActivity("ezchimp_output: ERROR: get newsletters custom field IDs: " . $e->getMessage());
+                                }
+
+                                if (!empty($fieldIds)) {
+                                    $subscribe_contacts_fieldid = 0;
+                                    try {
+                                        $rows = Capsule::table('tblcustomfields')
+                                            ->select('id')
+                                            ->where([
+                                                [ 'type', '=', 'client' ],
+                                                [ 'fieldtype', '=', 'tickbox' ],
+                                                [ 'sortorder', '=', 46309 ]
+                                            ])
+                                            ->get();
+                                        if ($rows[0]) {
+                                            $subscribe_contacts_fieldid = $rows[0]->id;
+                                        }
+                                    } catch (\Exception $e) {
+                                        logActivity("ezchimp_output: ERROR: get subscribe contacts custom field ID: " . $e->getMessage());
+                                    }
 
                                     $default_format_fieldid = 0;
-                                    $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'dropdown', 'sortorder' => 46307));
-                                    if ($row = mysql_fetch_assoc($result)) {
-                                        $default_format_fieldid = $row['id'];
+                                    try {
+                                        $rows = Capsule::table('tblcustomfields')
+                                            ->select('id')
+                                            ->where([
+                                                [ 'type', '=', 'client' ],
+                                                [ 'fieldtype', '=', 'dropdown' ],
+                                                [ 'sortorder', '=', 46307 ]
+                                            ])
+                                            ->get();
+                                        if ($rows[0]) {
+                                            $default_format_fieldid = $rows[0]->id;
+                                        }
+                                    } catch (\Exception $e) {
+                                        logActivity("ezchimp_output: ERROR: get default email format custom field ID: " . $e->getMessage());
                                     }
-                                    mysql_free_result($result);
 
-					    			$fieldids_str = implode(',', $fieldids);
-					    			if ($ezconf->debug > 2) {
-					    				logActivity("ezchimp_output: fieldids_str - $fieldids_str");
-					    			}
-									$query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` IN ($fieldids_str)";
-									$result = mysql_query($query);
-									$subscribed = array();
-									while ($row = mysql_fetch_assoc($result)) {
-										$subscribed[$row['relid']] = 1;
-									}
-									mysql_free_result($result);
-					    			if ($ezconf->debug > 2) {
-					    				logActivity("ezchimp_output: subscribed - ".print_r($subscribed, true));
-					    			}
+                                    $subscribed = [];
+                                    try {
+                                        $rows = Capsule::table('tblcustomfieldsvalues')
+                                            ->select('relid')
+                                            ->whereIn('fieldid', $fieldIds)
+                                            ->get();
+                                        foreach ($rows as $row) {
+                                            $subscribed[$row->relid] = 1;
+                                        }
+                                        if ($ezconf->debug > 2) {
+                                            logActivity("ezchimp_output: subscribed - ".print_r($subscribed, true));
+                                        }
+                                    } catch (\Exception $e) {
+                                        logActivity("ezchimp_output: ERROR: get subscriptions: " . $e->getMessage());
+                                    }
 
 									$activelists = unserialize($settings['activelists']);
 									if ($ezconf->debug > 2) {
-										logActivity("ezchimp_output: activelists - ".print_r($activelists, true));
+										logActivity("ezchimp_output: activelists 2 - ".print_r($activelists, true));
 									}
 
-									$email_type = $settings['default_format'];
-									$subscriptions = array();
+									$emailType = $settings['default_format'];
+									$subscriptions = [];
 									foreach ($activelists as $list => $groups) {
 										if (!is_array($groups)) {
-											$subscriptions[] = array('list' => $list);
+											$subscriptions[] = [ 'list' => $list ];
 										} else {
-											$subscription_groupings = array();
-											foreach ($groups as $maingroup => $groups) {
-												$groups_str = '';
-												foreach ($groups as $group => $alias) {
-													$groups_str .= str_replace(',', '\\,', $group).',';
-												}
-												if ('' != $groups_str) {
-													$groups_str = substr($groups_str, 0, -1);
-													$subscription_groupings[] = array('name' => $maingroup, 'groups' => $groups_str);
-												}
+											$subscription_groupings = [];
+											foreach ($groups as $mainGroup => $subgroups) {
+                                                $subscription_groupings[] = [ 'name' => $mainGroup, 'groups' => array_keys($subgroups) ];
 											}
 											if (!empty($subscription_groupings)) {
-												$subscriptions[] = array('list' => $list, 'grouping' => $subscription_groupings);
+												$subscriptions[] = [ 'list' => $list, 'grouping' => $subscription_groupings ];
 											}
 										}
 									}
-					    			$clients = array();
+					    			$clients = [];
+                                    $rows = [];
                                     if ($hosting_active) {
-                                        $active_client_query = "SELECT DISTINCT tblclients.id as id, tblclients.firstname as firstname, tblclients.lastname as lastname, tblclients.email as email FROM  tblclients, tblhosting, tblproducts WHERE tblhosting.userid = tblclients.id AND tblhosting.packageid = tblproducts.id AND tblhosting.domainstatus = 'Active' AND tblclients.status = 'Active'";
-                                        $result = mysql_query($active_client_query);
+                                        $where = [
+                                            [ 'tblhosting.domainstatus', '=', 'Active' ],
+                                            [ 'tblclients.status', '=', 'Active' ]
+                                        ];
+                                        if ($optin_only) {
+                                            array_push($where, [ 'tblclients.emailoptout', '=', 0 ]);
+                                        }
+                                        try {
+                                            $rows = Capsule::table('tblclients')
+                                                ->join('tblhosting', 'tblclients.id', '=', 'tblhosting.userid')
+                                                ->join('tblproducts', 'tblhosting.packageid', '=', 'tblproducts.id')
+                                                ->select('tblclients.id as id', 'tblclients.firstname as firstname', 'tblclients.lastname as lastname', 'tblclients.email as email')
+                                                ->distinct()
+                                                ->where($where)
+                                                ->get();
+                                        } catch (\Exception $e) {
+                                            logActivity("ezchimp_output: ERROR: get active hosting clients: " . $e->getMessage());
+                                        }
                                     } else {
-                                        $result = select_query('tblclients', 'id, firstname, lastname, email', array('status' => 'Active'));
+                                        $where = [];
+                                        if (!$include_inactive) {
+                                            array_push($where, [ 'status', '=', 'Active' ]);
+                                        }
+                                        if ($optin_only) {
+                                            array_push($where, [ 'emailoptout', '=', 0 ]);
+                                        }
+                                        try {
+                                            $rows = Capsule::table('tblclients')
+                                                ->select('id', 'firstname', 'lastname', 'email')
+                                                ->where($where)
+                                                ->get();
+                                        } catch (\Exception $e) {
+                                            logActivity("ezchimp_output: ERROR: get active clients 1: " . $e->getMessage());
+                                        }
                                     }
-					    			while ($row = mysql_fetch_assoc($result)) {
-					    				$clientid = $row['id'];
-					    				$firstname = $row['firstname'];
-					    				$lastname = $row['lastname'];
-					    				$email = $row['email'];
+                                    if (!empty($rows)) {
+                                        foreach ($rows as $row) {
+                                            $clientId = $row->id;
+                                            $firstName = $row->firstname;
+                                            $lastName = $row->lastname;
+                                            $email = $row->email;
 
-					    				if ($default_format_fieldid > 0) {
-					    					/* Set default format for client */
-					    					$query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($default_format_fieldid, $clientid, 'on')";
-					    					mysql_query($query);
-					    				}
+                                            if ($default_format_fieldid > 0) {
+                                                /* Set default format for client */
+                                                try {
+                                                    Capsule::table('tblcustomfieldsvalues')
+                                                        ->insert([
+                                                            'fieldid' => $default_format_fieldid,
+                                                            'relid' => $clientId,
+                                                            'value' => 'on'
+                                                        ]);
+                                                } catch (\Exception $e) {
+                                                    logActivity("ezchimp_output: ERROR: insert default email format for client: " . $e->getMessage());
+                                                }
+                                            }
 
-					    				if (!isset($subscribed[$clientid])) {
-					    					$clients[$clientid]['self'] = $row;
-					    					/* Update database */
-					    					foreach ($fieldids as $fieldid) {
-					    						$query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($fieldid, $clientid, 'on')";
-					    						mysql_query($query);
-					    					}
+                                            if (!isset($subscribed[$clientId])) {
+                                                $clients[$clientId]['self'] = $row;
+                                                /* Update database */
+                                                foreach ($fieldIds as $fieldId) {
+                                                    try {
+                                                        Capsule::table('tblcustomfieldsvalues')
+                                                            ->insert([
+                                                                'fieldid' => $fieldId,
+                                                                'relid' => $clientId,
+                                                                'value' => 'on'
+                                                            ]);
+                                                    } catch (\Exception $e) {
+                                                        logActivity("ezchimp_output: ERROR: insert subscription for client: " . $e->getMessage());
+                                                    }
+                                                }
 
-					    					/* Update MailChimp */
-											foreach ($subscriptions as $subscription) {
-												_ezchimp_subscribe($subscription, $firstname, $lastname, $email, $email_type, $ezvars);
-											}
-							    			if ($ezconf->debug > 2) {
-							    				logActivity("ezchimp_output: subscribed client - $firstname $lastname <$email>");
-							    			}
-											if ('on' == $settings['subscribe_contacts']) {
-												if ($subscribe_contacts_fieldid > 0) {
-													/* Set subscribe contacts for client */
-						    						$query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($subscribe_contacts_fieldid, $clientid, 'on')";
-						    						mysql_query($query);
-												}
+                                                /* Update MailChimp */
+                                                foreach ($subscriptions as $subscription) {
+                                                    _ezchimp_subscribe($subscription, $firstName, $lastName, $email, $emailType, $ezvars);
+                                                }
+                                                if ($ezconf->debug > 2) {
+                                                    logActivity("ezchimp_output: subscribed client - $firstName $lastName <$email>");
+                                                }
+                                                if ('on' == $settings['subscribe_contacts']) {
+                                                    if ($subscribe_contacts_fieldid > 0) {
+                                                        /* Set subscribe contacts for client */
+                                                        try {
+                                                            Capsule::table('tblcustomfieldsvalues')
+                                                                ->insert([
+                                                                    'fieldid' => $subscribe_contacts_fieldid,
+                                                                    'relid' => $clientId,
+                                                                    'value' => 'on'
+                                                                ]);
+                                                        } catch (\Exception $e) {
+                                                            logActivity("ezchimp_output: ERROR: insert subscribe contacts for client: " . $e->getMessage());
+                                                        }
+                                                    }
 
-												$query = "SELECT `id`, `firstname`, `lastname`, `email` FROM `tblcontacts` WHERE `userid`=$clientid";
-												$contact_result = mysql_query($query);
-												while ($contact = mysql_fetch_assoc($contact_result)) {
-													$contactid = $contact['id'];
-								    				$firstname = $contact['firstname'];
-								    				$lastname = $contact['lastname'];
-								    				$email = $contact['email'];
-								    				$clients[$clientid]['contacts'][$contactid] = $contact;
-													foreach ($subscriptions as $subscription) {
-														_ezchimp_subscribe($subscription, $firstname, $lastname, $email, $email_type, $ezvars);
-													}
-													if ($ezconf->debug > 2) {
-														logActivity("ezchimp_output: subscribed contact - $firstname $lastname <$email>");
-													}
-												}
-												mysql_free_result($contact_result);
-											}
-					    				} else {
-							    			if ($ezconf->debug > 1) {
-							    				logActivity("ezchimp_output: already subscribed - $firstname $lastname <$email>");
-							    			}
-					    				}
-					    			}
-									mysql_free_result($result);
+                                                    $contacts = [];
+                                                    try {
+                                                        $contacts = Capsule::table('tblcontacts')
+                                                            ->select('id', 'firstname', 'lastname', 'email')
+                                                            ->where([
+                                                                [ 'userid', '=', $clientId ]
+                                                            ])
+                                                            ->get();
+                                                    } catch (\Exception $e) {
+                                                        logActivity("ezchimp_output: ERROR: get client contacts: " . $e->getMessage());
+                                                    }
+                                                    if (!empty($contacts)) {
+                                                        foreach ($contacts as $contact) {
+                                                            $contactId = $contact->id;
+                                                            $firstName = $contact->firstname;
+                                                            $lastName = $contact->lastname;
+                                                            $email = $contact->email;
+                                                            $clients[$clientId]['contacts'][$contactId] = $contact;
+                                                            foreach ($subscriptions as $subscription) {
+                                                                _ezchimp_subscribe($subscription, $firstName, $lastName, $email, $emailType, $ezvars);
+                                                            }
+                                                            if ($ezconf->debug > 2) {
+                                                                logActivity("ezchimp_output: subscribed contact - $firstName $lastName <$email>");
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                if ($ezconf->debug > 1) {
+                                                    logActivity("ezchimp_output: already subscribed - $firstName $lastName <$email>");
+                                                }
+                                            }
+                                        }
+                                    }
+
 					    			if (!empty($clients)) {
 					    				echo '<div class="infobox"><strong>'.$LANG['empty_subscribed'].'</strong></div>';
 					    				echo '<div class="tablebg"><table class="datatable" width="100%" border="0" cellspacing="1" cellpadding="3">
@@ -716,9 +1090,9 @@ function ezchimp_output($vars) {
 	<tr>
 		<td><a href="clientssummary.php?userid='.$id.'">'.$id.'</a></td>
 		<td>-</td>
-		<td><a href="clientssummary.php?userid='.$id.'">'.$details['self']['firstname'].'</a></td>
-		<td><a href="clientssummary.php?userid='.$id.'">'.$details['self']['lastname'].'</a></td>
-		<td><a href="mailto:'.$details['self']['email'].'">'.$details['self']['email'].'</a></td>
+		<td><a href="clientssummary.php?userid='.$id.'">'.$details['self']->firstname.'</a></td>
+		<td><a href="clientssummary.php?userid='.$id.'">'.$details['self']->lastname.'</a></td>
+		<td><a href="mailto:'.$details['self']->email.'">'.$details['self']->email.'</a></td>
 	</tr>';
 					    					if (!empty($details['contacts'])) {
 					    						foreach ($details['contacts'] as $ctid => $contact) {
@@ -726,9 +1100,9 @@ function ezchimp_output($vars) {
 	<tr>
 		<td><a href="clientssummary.php?userid='.$id.'">'.$id.'</a></td>
 		<td><a href="clientscontacts.php?userid='.$id.'&contactid='.$ctid.'">'.$ctid.'</a></td>
-		<td><a href="clientscontacts.php?userid='.$id.'&contactid='.$ctid.'">'.$contact['firstname'].'</a></td>
-		<td><a href="clientscontacts.php?userid='.$id.'&contactid='.$ctid.'">'.$contact['lastname'].'</a></td>
-		<td><a href="mailto:'.$contact['email'].'">'.$contact['email'].'</a></td>
+		<td><a href="clientscontacts.php?userid='.$id.'&contactid='.$ctid.'">'.$contact->firstname.'</a></td>
+		<td><a href="clientscontacts.php?userid='.$id.'&contactid='.$ctid.'">'.$contact->lastname.'</a></td>
+		<td><a href="mailto:'.$contact->email.'">'.$contact->email.'</a></td>
 	</tr>';
 					    						}
 					    					}
@@ -743,208 +1117,358 @@ function ezchimp_output($vars) {
 									}
 								} else {
 					    			if ($ezconf->debug > 0) {
-					    				logActivity("ezchimp_output: $action - No active lists/groups");
+					    				logActivity("ezchimp_output: $action - No active lists/groups 1");
 					    			}
 					    			echo '<div class="errorbox"><strong>'.$LANG['no_active_lists'].'</strong></div>';
 								}
 		    					break;
 
                             case 'reset_to_autosubscribe':
-                                $fieldids = array();
-                                $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'tickbox', 'sortorder' => 46306));
-                                while ($row = mysql_fetch_assoc($result)) {
-                                    $fieldids[] = $row['id'];
+                                $fieldIds = [];
+                                try {
+                                    $rows = Capsule::table('tblcustomfields')
+                                        ->select('id')
+                                        ->where([
+                                            [ 'type', '=', 'client' ],
+                                            [ 'fieldtype', '=', 'tickbox' ],
+                                            [ 'sortorder', '=', 46306 ]
+                                        ])
+                                        ->get();
+                                    foreach ($rows as $row) {
+                                        $fieldIds[] = $row->id;
+                                    }
+                                } catch (\Exception $e) {
+                                    logActivity("reset_to_autosubscribe: ERROR: get custom field IDs: " . $e->getMessage());
                                 }
-                                mysql_free_result($result);
 
-                                if (!empty($fieldids)) {
-                                    $errors = array();
+                                if (!empty($fieldIds)) {
+                                    $errors = [];
 
                                     $groupings = unserialize($settings['groupings']);
                                     if ($ezconf->debug > 0) {
                                         logActivity("reset_to_autosubscribe: groupings - " . print_r($groupings, true));
                                     }
 
-                                    if ($result_clients = select_query('tblclients', 'COUNT(id) AS client_count', array('status' => 'Active'))) {
-                                        $client_count = 0;
-                                        if ($row = mysql_fetch_assoc($result_clients)) {
-                                            $client_count = $row['client_count'];
-                                        }
-                                        mysql_free_result($result_clients);
+                                    $clientCount = 0;
+                                    try {
+                                        $clientCount = Capsule::table('tblclients')
+                                            ->select('id')
+                                            ->where([
+                                                [ 'status', '=', 'Active' ]
+                                            ])
+                                            ->count();
+                                    } catch (\Exception $e) {
+                                        logActivity("reset_to_autosubscribe: ERROR: get client count: " . $e->getMessage());
+                                    }
+                                    if ($clientCount) {
                                         $offset = 0;
                                         $limit = 100;
                                         do {
                                             if ($ezconf->debug > 1) {
-                                                logActivity("reset_to_autosubscribe: offset: $offset, limit: $limit, total: $client_count");
+                                                logActivity("reset_to_autosubscribe: offset: $offset, limit: $limit, total: $clientCount");
                                             }
-                                            $query = "SELECT DISTINCT `id`, `firstname`, `lastname`, `email` FROM `tblclients` WHERE `status`='Active' ORDER BY `id` ASC LIMIT $offset, $limit";
-                                            //$result_clients = select_query('tblclients', 'id, firstname, lastname, email', array('status' => 'Active'));
-                                            $result_clients = mysql_query($query);
-                                            while ($client = mysql_fetch_assoc($result_clients)) {
-                                                $client_id = $client['id'];
-                                                $firstname = $client['firstname'];
-                                                $lastname = $client['lastname'];
-                                                $email = $client['email'];
-                                                $email_type = _ezchimp_client_email_type($client_id, $ezvars);
-                                                //$client_subscribe_contacts = _ezchimp_client_subscribe_contacts($client_id, $ezvars);
+                                            $clients = [];
+                                            try {
+                                                $clients = Capsule::table('tblclients')
+                                                    ->select('id', 'firstname', 'lastname', 'email')
+                                                    ->where([
+                                                        [ 'status', '=', 'Active' ]
+                                                    ])
+                                                    ->orderBy('id', 'asc')
+                                                    ->skip($offset)
+                                                    ->take($limit)
+                                                    ->get();
+                                            } catch (\Exception $e) {
+                                                logActivity("reset_to_autosubscribe: ERROR: get active clients: " . $e->getMessage());
+                                            }
+                                            if (!empty($clients)) {
+                                                foreach ($clients as $client) {
+                                                    $clientId = $client->id;
+                                                    $firstName = $client->firstname;
+                                                    $lastName = $client->lastname;
+                                                    $email = $client->email;
+                                                    $emailType = _ezchimp_client_email_type($clientId, $ezvars);
 
-                                                $productgroup_names = array();
-                                                /* Check ordered domains if domains grouping available */
-                                                if (!empty($groupings['Domains']) || !empty($groupings1['Domains'])) {
-                                                    $result = select_query('tbldomains', 'id', array('userid' => $client_id));
-                                                    if (mysql_num_rows($result) > 0) {
-                                                        $productgroup_names['Domains'] = 1;
-                                                    }
-                                                }
-                                                mysql_free_result($result);
-                                                /* Check the ordered modules */
-                                                $query = "SELECT DISTINCT `g`.`name` AS `gname` FROM `tblhosting` AS `h` JOIN `tblproducts` AS `p` ON `h`.`packageid`=`p`.`id` JOIN `tblproductgroups` AS `g` ON `p`.`gid`=`g`.`id` WHERE `h`.`userid`='" . $client_id . "'";
-                                                $result = mysql_query($query);
-                                                while ($productgroup = mysql_fetch_assoc($result)) {
-                                                    $productgroup_names[$productgroup['gname']] = 1;
-                                                }
-                                                mysql_free_result($result);
-                                                if ($ezconf->debug > 1) {
-                                                    logActivity("reset_to_autosubscribe: Product groups for $firstname $lastname [$email] ($client_id) - " . print_r($productgroup_names, true));
-                                                }
-                                                $subscribe_list_groups = array();
-                                                foreach ($productgroup_names as $productgroup_name => $one) {
-                                                    if (!empty($groupings[$productgroup_name])) {
-                                                        foreach ($groupings[$productgroup_name] as $list_id1 => $list_groupings) {
-                                                            if ($ezconf->debug > 0) {
-                                                                logActivity("reset_to_autosubscribe: subscription group1 ($list_id1) - " . print_r($list_groupings, true));
+                                                    $productGroupNames = [];
+                                                    /* Check ordered domains if domains grouping available */
+                                                    if (!empty($groupings['Domains']) || !empty($groupings1['Domains'])) {
+                                                        try {
+                                                            $domain_count = Capsule::table('tbldomains')
+                                                                ->select('id')
+                                                                ->where([
+                                                                    [ 'userid', '=', $clientId ]
+                                                                ])
+                                                                ->count();
+                                                            if ($domain_count > 0) {
+                                                                $productGroupNames['Domains'] = 1;
                                                             }
-                                                            if (!(is_array($list_groupings))) {
+                                                        } catch (\Exception $e) {
+                                                            logActivity("reset_to_autosubscribe: ERROR: get client domains: " . $e->getMessage());
+                                                        }
+                                                    }
+                                                    /* Check the ordered modules */
+                                                    $productGroups = [];
+                                                    try {
+                                                        $productGroups = Capsule::table('tblhosting')
+                                                            ->join('tblproducts', 'tblhosting.packageid', '=', 'tblproducts.id')
+                                                            ->join('tblproductgroups', 'tblproducts.gid', '=', 'tblproductgroups.id')
+                                                            ->select('tblproductgroups.name as gname')
+                                                            ->distinct()
+                                                            ->where([
+                                                                [ 'tblhosting.userid', '=', $clientId ]
+                                                            ])
+                                                            ->get();
+                                                    } catch (\Exception $e) {
+                                                        logActivity("ezchimp_output: ERROR: get client product groups 1: " . $e->getMessage());
+                                                    }
+                                                    if (!empty($productGroups)) {
+                                                        foreach ($productGroups as $productGroup) {
+                                                            $productGroupNames[$productGroup->gname] = 1;
+                                                        }
+                                                    }
+                                                    if ($ezconf->debug > 1) {
+                                                        logActivity("reset_to_autosubscribe: Product groups for $firstName $lastName [$email] ($clientId) - " . print_r($productGroupNames, true));
+                                                    }
+                                                    $subscribe_list_groups = [];
+                                                    foreach ($productGroupNames as $productGroupName => $one) {
+                                                        if (!empty($groupings[$productGroupName])) {
+                                                            foreach ($groupings[$productGroupName] as $listId => $list_groupings) {
                                                                 if ($ezconf->debug > 0) {
-                                                                    logActivity("reset_to_autosubscribe: empty main group");
+                                                                    logActivity("reset_to_autosubscribe: subscription group1 ($listId) - " . print_r($list_groupings, true));
                                                                 }
-                                                                if (!isset($subscribe_list_groups[$list_id1])) {
-                                                                    $subscribe_list_groups[$list_id1] = array();
-                                                                }
-                                                                $query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldoptions`='" . mysql_real_escape_string($list_id1) . "'";
-                                                                $result = mysql_query($query);
-                                                                $row = mysql_fetch_assoc($result);
-                                                                $field_id = $row['id'];
-                                                                if ($ezconf->debug > 0) {
-                                                                    logActivity("reset_to_autosubscribe: subscription field3 - " . $row['id']);
-                                                                }
-                                                                mysql_free_result($result);
-                                                                $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`='on'";
-                                                                $result = mysql_query($query);
-                                                                $subscribed1 = array();
-                                                                while ($row = mysql_fetch_assoc($result)) {
-                                                                    $subscribed1[$row['relid']] = 1;
-                                                                }
-                                                                mysql_free_result($result);
-                                                                $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`=''";
-                                                                $result = mysql_query($query);
-                                                                $subscribed2 = array();
-                                                                while ($row = mysql_fetch_assoc($result)) {
-                                                                    $subscribed2[$row['relid']] = 1;
-                                                                }
-                                                                mysql_free_result($result);
-                                                                if (isset($subscribed2[$client_id])) {
-                                                                    if ($ezconf->debug > 2) {
-                                                                        logActivity("reset_to_autosubscribe: subscription update3");
+                                                                if (!(is_array($list_groupings))) {
+                                                                    if ($ezconf->debug > 0) {
+                                                                        logActivity("reset_to_autosubscribe: empty main group");
                                                                     }
-                                                                    $query = "UPDATE `tblcustomfieldsvalues` SET `value`='on' where `relid`=$client_id AND `fieldid`=$field_id";
-                                                                    mysql_query($query);
-                                                                } else if (!isset($subscribed1[$client_id])) {
-                                                                    if ($ezconf->debug > 2) {
-                                                                        logActivity("reset_to_autosubscribe: subscribed insert3 - " . print_r($subscribed1, true));
+                                                                    if (!isset($subscribe_list_groups[$listId])) {
+                                                                        $subscribe_list_groups[$listId] = [];
                                                                     }
-                                                                    $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($field_id, $client_id, 'on')";
-                                                                    mysql_query($query);
-                                                                } else {
-                                                                    if ($ezconf->debug > 2) {
-                                                                        logActivity("reset_to_autosubscribe: list subscribed3");
-                                                                    }
-                                                                }
-                                                            } else {
-                                                                if (!isset($subscribe_list_groups[$list_id1])) {
-                                                                    $subscribe_list_groups[$list_id1] = $list_groupings;
-                                                                    $fresh_list = true;
-                                                                } else {
-                                                                    $fresh_list = false;
-                                                                }
-                                                                foreach ($list_groupings as $maingroup => $groups) {
-                                                                    if (!$fresh_list) {
-                                                                        if (!isset($subscribe_list_groups[$list_id1][$maingroup])) {
-                                                                            $subscribe_list_groups[$list_id1][$maingroup] = $groups;
-                                                                        } else {
-                                                                            $subscribe_list_groups[$list_id1][$maingroup] = array_unique(array_merge($subscribe_list_groups[$list_id1][$maingroup], $groups));
-                                                                            if ($ezconf->debug > 4) {
-                                                                                logActivity("reset_to_autosubscribe: New sub groups ($list_id1 > $maingroup): " . print_r($subscribe_list_groups[$list_id1][$maingroup], true));
+
+                                                                    $fieldId = 0;
+                                                                    try {
+                                                                        $rows = Capsule::table('tblcustomfields')
+                                                                            ->select('id')
+                                                                            ->where([
+                                                                                [ 'type', '=', 'client' ],
+                                                                                [ 'fieldtype', '=', 'tickbox' ],
+                                                                                [ 'sortorder', '=', 46306 ],
+                                                                                [ 'fieldoptions', '=', $listId ]
+                                                                            ])
+                                                                            ->get();
+                                                                        if ($rows[0]) {
+                                                                            $fieldId = $rows[0]->id;
+                                                                            if ($ezconf->debug > 0) {
+                                                                                logActivity("reset_to_autosubscribe: get subscription field ID - $fieldId");
                                                                             }
                                                                         }
+                                                                    } catch (\Exception $e) {
+                                                                        logActivity("reset_to_autosubscribe: ERROR: get subscription field ID: " . $e->getMessage());
                                                                     }
-                                                                    foreach ($groups as $grps) {
-                                                                        $query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldname`='" . mysql_real_escape_string($grps) . "'";
-                                                                        $result = mysql_query($query);
-                                                                        $row = mysql_fetch_assoc($result);
-                                                                        $field_id = $row['id'];
-                                                                        if ($ezconf->debug > 0) {
-                                                                            logActivity("reset_to_autosubscribe: subscription field1 - " . print_r($row['id'], true));
+                                                                    if ($fieldId) {
+                                                                        $subscribed1 = [];
+                                                                        try {
+                                                                            $rows = Capsule::table('tblcustomfieldsvalues')
+                                                                                ->select('relid')
+                                                                                ->distinct()
+                                                                                ->where([
+                                                                                    [ 'fieldid', '=', $fieldId ],
+                                                                                    [ 'value', '=', 'on' ]
+                                                                                ])
+                                                                                ->get();
+                                                                            foreach ($rows as $row) {
+                                                                                $subscribed1[$row->relid] = 1;
+                                                                            }
+                                                                        } catch (\Exception $e) {
+                                                                            logActivity("reset_to_autosubscribe: ERROR: get subscribed: " . $e->getMessage());
                                                                         }
-                                                                        mysql_free_result($result);
-                                                                        $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`='on'";
-                                                                        $result = mysql_query($query);
-                                                                        $subscribed1 = array();
-                                                                        while ($row = mysql_fetch_assoc($result)) {
-                                                                            $subscribed1[$row['relid']] = 1;
+
+                                                                        $subscribed2 = [];
+                                                                        try {
+                                                                            $rows = Capsule::table('tblcustomfieldsvalues')
+                                                                                ->select('relid')
+                                                                                ->distinct()
+                                                                                ->where([
+                                                                                    [ 'fieldid', '=', $fieldId ],
+                                                                                    [ 'value', '=', '' ]
+                                                                                ])
+                                                                                ->get();
+                                                                            foreach ($rows as $row) {
+                                                                                $subscribed2[$row->relid] = 1;
+                                                                            }
+                                                                        } catch (\Exception $e) {
+                                                                            logActivity("reset_to_autosubscribe: ERROR: get unsubscribed: " . $e->getMessage());
                                                                         }
-                                                                        mysql_free_result($result);
-                                                                        $query = "SELECT DISTINCT `relid` FROM `tblcustomfieldsvalues` WHERE `fieldid` = $field_id AND `value`=''";
-                                                                        $result = mysql_query($query);
-                                                                        $subscribed2 = array();
-                                                                        while ($row = mysql_fetch_assoc($result)) {
-                                                                            $subscribed2[$row['relid']] = 1;
-                                                                        }
-                                                                        mysql_free_result($result);
-                                                                        if (isset($subscribed2[$client_id])) {
+
+                                                                        if (isset($subscribed2[$clientId])) {
                                                                             if ($ezconf->debug > 2) {
-                                                                                logActivity("reset_to_autosubscribe: subscribion update1");
+                                                                                logActivity("reset_to_autosubscribe: update subscription");
                                                                             }
-                                                                            $query = "UPDATE `tblcustomfieldsvalues` SET `value`='on' where `relid`=$client_id AND `fieldid`=$field_id";
-                                                                            mysql_query($query);
-                                                                        } else if (!isset($subscribed1[$client_id])) {
+                                                                            try {
+                                                                                Capsule::table('tblcustomfieldsvalues')
+                                                                                    ->where([
+                                                                                        [ 'relid', '=', $clientId ],
+                                                                                        [ 'fieldid', '=', $fieldId ]
+                                                                                    ])
+                                                                                    ->update([ 'value' => 'on' ]);
+                                                                            } catch (\Exception $e) {
+                                                                                logActivity("reset_to_autosubscribe: ERROR: update subscription: " . $e->getMessage());
+                                                                            }
+                                                                        } else if (!isset($subscribed1[$clientId])) {
                                                                             if ($ezconf->debug > 2) {
-                                                                                logActivity("reset_to_autosubscribe: subscribed insert1 - " . print_r($subscribed1, true));
+                                                                                logActivity("reset_to_autosubscribe: insert subscription - " . print_r($subscribed1, true));
                                                                             }
-                                                                            $query = "INSERT INTO `tblcustomfieldsvalues` (`fieldid`, `relid`, `value`) VALUES ($field_id, $client_id, 'on')";
-                                                                            mysql_query($query);
+                                                                            try {
+                                                                                Capsule::table('tblcustomfieldsvalues')
+                                                                                    ->insert([
+                                                                                        'relid' => $clientId,
+                                                                                        'fieldid' => $fieldId,
+                                                                                        'value' => 'on'
+                                                                                    ]);
+                                                                            } catch (\Exception $e) {
+                                                                                logActivity("reset_to_autosubscribe: ERROR: insert subscription: " . $e->getMessage());
+                                                                            }
                                                                         } else {
                                                                             if ($ezconf->debug > 2) {
-                                                                                logActivity("reset_to_autosubscribe: list subscribed");
+                                                                                logActivity("reset_to_autosubscribe: list already subscribed");
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                } else {
+                                                                    if (!isset($subscribe_list_groups[$listId])) {
+                                                                        $subscribe_list_groups[$listId] = $list_groupings;
+                                                                        $fresh_list = true;
+                                                                    } else {
+                                                                        $fresh_list = false;
+                                                                    }
+                                                                    foreach ($list_groupings as $mainGroup => $groups) {
+                                                                        if (!$fresh_list) {
+                                                                            if (!isset($subscribe_list_groups[$listId][$mainGroup])) {
+                                                                                $subscribe_list_groups[$listId][$mainGroup] = $groups;
+                                                                            } else {
+                                                                                $subscribe_list_groups[$listId][$mainGroup] = array_unique(array_merge($subscribe_list_groups[$listId][$mainGroup], $groups));
+                                                                                if ($ezconf->debug > 4) {
+                                                                                    logActivity("reset_to_autosubscribe: New sub groups ($listId > $mainGroup): " . print_r($subscribe_list_groups[$listId][$mainGroup], true));
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        foreach ($groups as $group) {
+                                                                            $fieldId = 0;
+                                                                            try {
+                                                                                $listStr = $listId.'^:'.$mainGroup.'^:'.$group;
+                                                                                $rows = Capsule::table('tblcustomfields')
+                                                                                    ->select('id')
+                                                                                    ->where([
+                                                                                        [ 'type', '=', 'client' ],
+                                                                                        [ 'fieldtype', '=', 'tickbox' ],
+                                                                                        [ 'sortorder', '=', 46306 ],
+                                                                                        [ 'fieldoptions', '=', $listStr ]
+                                                                                    ])
+                                                                                    ->get();
+                                                                                if ($rows[0]) {
+                                                                                    $fieldId = $rows[0]->id;
+                                                                                    if ($ezconf->debug > 0) {
+                                                                                        logActivity("reset_to_autosubscribe: subscription group field ID - $fieldId");
+                                                                                    }
+                                                                                }
+                                                                            } catch (\Exception $e) {
+                                                                                logActivity("reset_to_autosubscribe: ERROR: get subscription group field ID: " . $e->getMessage());
+                                                                            }
+
+                                                                            if ($fieldId) {
+                                                                                $subscribed1 = [];
+                                                                                try {
+                                                                                    $rows = Capsule::table('tblcustomfieldsvalues')
+                                                                                        ->select('relid')
+                                                                                        ->distinct()
+                                                                                        ->where([
+                                                                                            [ 'fieldid', '=', $fieldId ],
+                                                                                            [ 'value', '=', 'on' ]
+                                                                                        ])
+                                                                                        ->get();
+                                                                                    foreach ($rows as $row) {
+                                                                                        $subscribed1[$row->relid] = 1;
+                                                                                    }
+                                                                                } catch (\Exception $e) {
+                                                                                    logActivity("reset_to_autosubscribe: ERROR: get subscribed group: " . $e->getMessage());
+                                                                                }
+
+                                                                                $subscribed2 = [];
+                                                                                try {
+                                                                                    $rows = Capsule::table('tblcustomfieldsvalues')
+                                                                                        ->select('relid')
+                                                                                        ->distinct()
+                                                                                        ->where([
+                                                                                            [ 'fieldid', '=', $fieldId ],
+                                                                                            [ 'value', '=', '' ]
+                                                                                        ])
+                                                                                        ->get();
+                                                                                    foreach ($rows as $row) {
+                                                                                        $subscribed2[$row->relid] = 1;
+                                                                                    }
+                                                                                } catch (\Exception $e) {
+                                                                                    logActivity("reset_to_autosubscribe: ERROR: get unsubscribed group: " . $e->getMessage());
+                                                                                }
+
+                                                                                if (isset($subscribed2[$clientId])) {
+                                                                                    if ($ezconf->debug > 2) {
+                                                                                        logActivity("reset_to_autosubscribe: update subscription group");
+                                                                                    }
+                                                                                    try {
+                                                                                        Capsule::table('tblcustomfieldsvalues')
+                                                                                            ->where([
+                                                                                                [ 'relid', '=', $clientId ],
+                                                                                                [ 'fieldid', '=', $fieldId ]
+                                                                                            ])
+                                                                                            ->update([ 'value' => 'on' ]);
+                                                                                    } catch (\Exception $e) {
+                                                                                        logActivity("reset_to_autosubscribe: ERROR: update subscription group: " . $e->getMessage());
+                                                                                    }
+                                                                                } else if (!isset($subscribed1[$clientId])) {
+                                                                                    if ($ezconf->debug > 2) {
+                                                                                        logActivity("reset_to_autosubscribe: insert subscription group - " . print_r($subscribed1, true));
+                                                                                    }
+                                                                                    try {
+                                                                                        Capsule::table('tblcustomfieldsvalues')
+                                                                                            ->insert([
+                                                                                                'relid' => $clientId,
+                                                                                                'fieldid' => $fieldId,
+                                                                                                'value' => 'on'
+                                                                                            ]);
+                                                                                    } catch (\Exception $e) {
+                                                                                        logActivity("reset_to_autosubscribe: ERROR: insert subscription group: " . $e->getMessage());
+                                                                                    }
+                                                                                } else {
+                                                                                    if ($ezconf->debug > 2) {
+                                                                                        logActivity("reset_to_autosubscribe: list group already subscribed");
+                                                                                    }
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
                                                                 }
                                                             }
+                                                        } else {
+                                                            $errors[] = "Product group [" . $productGroupName . "] lists not found in map";
                                                         }
-                                                    } else {
-                                                        $errors[] = "Product group [" . $productgroup_name . "] lists not found in map";
                                                     }
-                                                }
-                                                if ($ezconf->debug > 4) {
-                                                    logActivity("reset_to_autosubscribe: Subscriptions for $firstname $lastname [$email] ($client_id) - " . print_r($subscribe_list_groups, true));
-                                                }
-                                                if (!empty($subscribe_list_groups)) {
-                                                    foreach ($subscribe_list_groups as $list_id => $interest_groupings) {
-                                                        $subscription_groupings = array();
-                                                        foreach ($interest_groupings as $maingroup => $sub_groups) {
-                                                            $sub_groups_str = implode(',', $sub_groups);
-                                                            $subscription_groupings[] = array('name' => $maingroup, 'groups' => $sub_groups_str);
+                                                    if ($ezconf->debug > 4) {
+                                                        logActivity("reset_to_autosubscribe: Subscriptions for $firstName $lastName [$email] ($clientId) - " . print_r($subscribe_list_groups, true));
+                                                    }
+                                                    if (!empty($subscribe_list_groups)) {
+                                                        foreach ($subscribe_list_groups as $list_id => $interest_groupings) {
+                                                            $subscription_groupings = [];
+                                                            foreach ($interest_groupings as $mainGroup => $sub_groups) {
+                                                                $subscription_groupings[] = [ 'name' => $mainGroup, 'groups' => $sub_groups ];
+                                                            }
+                                                            $subscription = [ 'list' => $list_id, 'grouping' => $subscription_groupings ];
+                                                            _ezchimp_subscribe($subscription, $firstName, $lastName, $email, $emailType, $ezvars);
+                                                            // TODO: subscribe contacts if configured
                                                         }
-                                                        $subscription = array('list' => $list_id, 'grouping' => $subscription_groupings);
-                                                        _ezchimp_subscribe($subscription, $firstname, $lastname, $email, $email_type, $ezvars);
-                                                        // TODO: subscribe contacts if configured
                                                     }
                                                 }
                                             }
-                                            mysql_free_result($result_clients);
                                             $offset += $limit;
-                                        } while ($offset < $client_count);
+                                        } while ($offset < $clientCount);
                                     }
                                     if ($ezconf->debug > 0) {
                                         logActivity("reset_to_autosubscribe: errors - ".print_r($errors, true));
@@ -952,7 +1476,7 @@ function ezchimp_output($vars) {
                                     echo '<div class="infobox"><strong>'.$LANG['subscriptions_reset'].'</strong></div>';
                                 } else {
                                     if ($ezconf->debug > 0) {
-                                        logActivity("ezchimp_output: $action - No active lists/groups");
+                                        logActivity("ezchimp_output: $action - No active lists/groups 2");
                                     }
                                     echo '<div class="errorbox"><strong>'.$LANG['no_active_lists'].'</strong></div>';
                                 }
@@ -976,9 +1500,27 @@ function ezchimp_output($vars) {
 	</tr>
 	<tr>
 		<td class="fieldlabel">
+			<input type="radio" name="action" value="subscribe_empty_optin" class="ui-button ui-widget ui-state-default ui-corner-all" role="button" aria-disabled="false">
+		</td>
+		<td class="fieldarea">'.$LANG['subscribe_empty_optin_desc'].'</td>
+	</tr>
+	<tr>
+		<td class="fieldlabel">
+			<input type="radio" name="action" value="subscribe_empty_all_optin" class="ui-button ui-widget ui-state-default ui-corner-all" role="button" aria-disabled="false">
+		</td>
+		<td class="fieldarea">'.$LANG['subscribe_empty_all_optin_desc'].'</td>
+	</tr>
+	<tr>
+		<td class="fieldlabel">
 			<input type="radio" name="action" value="subscribe_empty_hosting_active" class="ui-button ui-widget ui-state-default ui-corner-all" role="button" aria-disabled="false">
 		</td>
 		<td class="fieldarea">'.$LANG['subscribe_empty_hosting_active_desc'].'</td>
+	</tr>
+	<tr>
+		<td class="fieldlabel">
+			<input type="radio" name="action" value="subscribe_empty_hosting_active_optin" class="ui-button ui-widget ui-state-default ui-corner-all" role="button" aria-disabled="false">
+		</td>
+		<td class="fieldarea">'.$LANG['subscribe_empty_hosting_active_optin_desc'].'</td>
 	</tr>
 	<tr>
 		<td class="fieldlabel">
@@ -991,28 +1533,24 @@ function ezchimp_output($vars) {
 	    		break;
 
 	    	case 'lists':
-	    		$lists = $list_names = array();
-	    		$params = array('apikey' => $apikey);
-
-	    		$lists_result = _ezchimp_mailchimp_api('lists', $params, $ezvars);
+	    		$lists = $list_names = [];
+	    		$params = [ 'apikey' => $apikey ];
+	    		$lists_result = _ezchimp_lists($params, $ezvars);
 	    		if ($ezconf->debug > 3) {
-	    			logActivity("ezchimp_output: lists result - ".print_r($lists_result, true));
-	    		}
-	    		if (!empty($lists_result->data)) {
-	    			foreach ($lists_result->data as $list) {
+	    			logActivity("ezchimp_output: lists result 1 - ".print_r($lists_result, true));
+                }
+                $interestmaps = [];
+	    		if (!empty($lists_result)) {
+	    			foreach ($lists_result as $list) {
+                        logActivity("ezchimp_output: list - ".print_r($list, true));
 	    				$params['id'] = $list->id;
-	    				$list_groupings = array();
-	    				$maingroups = _ezchimp_mailchimp_api('listInterestGroupings', $params, $ezconf);
-	    				if (!empty($maingroups)) {
-	    					foreach ($maingroups as $maingroup) {
-	    						$groups = array();
-	    						foreach ($maingroup->groups as $group) {
-	    							$groups[] = $group->name;
-	    						}
-	    						$list_groupings[$maingroup->name] = $groups;
-	    					}
-	    				}
-	    				$lists[$list->name] = array('id' => $list->id, 'groupings' => $list_groupings);
+                        $list_groupings = [];
+                        $groupings = _ezchimp_listInterestGroupings($params, $ezvars);
+                        if (!empty($groupings['groupings'])) {
+                            $list_groupings = $groupings['groupings'];
+                        }
+                        $interestmaps[$list->id] = $groupings['interestmap'];
+	    				$lists[$list->name] = [ 'id' => $list->id, 'groupings' => $list_groupings ];
                         $list_names[$list->id] = $list->name;
 	    			}
 	    		}
@@ -1023,23 +1561,33 @@ function ezchimp_output($vars) {
 	    		if (empty($lists)) {
 	    			echo '<div class="errorbox"><strong>'.$LANG['create_list'].'</strong></div>';
 	    		} else {
-	    			$showorder = isset($settings['showorder']) ? $settings['showorder'] : '';
+	    			$showOrder = isset($settings['showorder']) ? $settings['showorder'] : '';
 	    			if (!empty($settings['activelists'])) {
 	    				$activelists = unserialize($settings['activelists']);
 				    	if ($ezconf->debug > 1) {
-				    		logActivity("ezchimp_output: activelists - ".print_r($activelists, true));
+				    		logActivity("ezchimp_output: activelists 3 - ".print_r($activelists, true));
 				    	}
 	    			} else {
-	    				$activelists = array();
+	    				$activelists = [];
 	    			}
 				    if (!empty($_POST)) {
+                        /* save the interestmap */
+                        try {
+                            Capsule::table('mod_ezchimp')
+                                ->where([
+                                    [ 'setting', '=', 'interestmaps' ]
+                                ])
+                                ->update([ 'value' => serialize($interestmaps) ]);
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update interestmap: " . $e->getMessage());
+                        }
 		    			$saved = false;
-                        $removed_webhooks = array();
+                        $removed_webhooks = [];
+                        $activelists_update = [];
 				    	if (!empty($_POST['activelists'])) {
 					    	if ($ezconf->debug > 4) {
-					    		logActivity("ezchimp_output: POST - ".print_r($_POST, true));
+					    		logActivity("ezchimp_output: POST 1 - ".print_r($_POST, true));
 					    	}
-				    		$activelists_update = array();
 
 				    		foreach ($_POST['activelists'] as $list) {
 				    			$list_str = '';
@@ -1055,34 +1603,67 @@ function ezchimp_output($vars) {
 					    			if (!empty($parts[2])) {
 					    				$list_parts = explode('%#', $parts[0]);
 					    				$list_id = $list_parts[0];
-					    				$list_name = $list_parts[1];
-					    				$maingroup = $parts[1];
+					    				// (NOT USED) $list_name = $list_parts[1];
+					    				$mainGroup = $parts[1];
 					    				$group = $parts[2];
 					    				$alias = empty($_POST['aliases'][md5($list)]) ? $group : $_POST['aliases'][md5($list)];
-					    				$activelists_update[$list_id][$maingroup][$group] = $alias;
-					    				$list_str = $list_id.'^:'.$maingroup.'^:'.$group;
+					    				$activelists_update[$list_id][$mainGroup][$group] = $alias;
+					    				$list_str = $list_id.'^:'.$mainGroup.'^:'.$group;
 					    			}
 				    			}
 				    			if ('' != $list_str) {
-                                    $_ADDONLANG = module_language_init();
-				    				$query = "SELECT `id`, `fieldname` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldoptions`='".mysql_real_escape_string($list_str)."'";
-				    				$result = mysql_query($query);
-				    				if (mysql_num_rows($result) > 0) {
-				    					$row = mysql_fetch_assoc($result);
-				    					/* Update field name if it has changed */
-				    					if ($_ADDONLANG['subscribe_to'].$alias != $row['fieldname']) {
-				    						$custom_field_id = $row['id'];
-				    						$query = "UPDATE `tblcustomfields` SET `fieldname`='".mysql_real_escape_string($_ADDONLANG['subscribe_to'].$alias)."' WHERE `id`=$custom_field_id";
-				    						mysql_query($query);
-									    	if ($ezconf->debug > 1) {
-									    		logActivity("ezchimp_output: alias update - ".$row['fieldname']." -> ".$_ADDONLANG['subscribe_to'].$alias);
-									    	}
-				    					}
-				    				} else {
-				    					/* Insert newly activated list */
-				    					$query = "INSERT INTO `tblcustomfields` (`type`, `relid`, `fieldname`, `fieldtype`, `description`, `fieldoptions`, `regexpr`, `adminonly`, `required`, `showorder`, `showinvoice`, `sortorder`) VALUES ('client', 0, '".mysql_real_escape_string($_ADDONLANG['subscribe_to'].$alias)."', 'tickbox', '".mysql_real_escape_string($_ADDONLANG['subscribe_to_list'])."', '".mysql_real_escape_string($list_str)."', '', '', '', '$showorder', '', 46306)";
-				    					mysql_query($query);
-				    				}
+                                    try {
+                                        $rows = Capsule::table('tblcustomfields')
+                                            ->select('id', 'fieldname')
+                                            ->where([
+                                                [ 'type', '=', 'client' ],
+                                                [ 'fieldtype', '=', 'tickbox' ],
+                                                [ 'sortorder', '=', 46306 ],
+                                                [ 'fieldoptions', '=', $list_str ]
+                                            ])
+                                            ->get();
+                                        if ($rows[0]) {
+                                            /* Update field name if it has changed */
+                                            $fieldName = $rows[0]->fieldname;
+                                            if ($LANG['subscribe_to'].$alias != $fieldName) {
+                                                $customFieldId = $rows[0]->id;
+                                                try {
+                                                    Capsule::table('tblcustomfields')
+                                                        ->where([
+                                                            [ 'id', '=', $customFieldId ]
+                                                        ])
+                                                        ->update([ 'fieldname' => $LANG['subscribe_to'].$alias ]);
+                                                    if ($ezconf->debug > 1) {
+                                                        logActivity("ezchimp_output: update alias - $fieldName -> " . $LANG['subscribe_to'].$alias);
+                                                    }
+                                                } catch (\Exception $e) {
+                                                    logActivity("ezchimp_output: ERROR: update alias: " . $e->getMessage());
+                                                }
+                                            }
+                                        } else {
+                                            try {
+                                                Capsule::table('tblcustomfields')
+                                                    ->insert([
+                                                        'type' => 'client',
+                                                        'relid' => 0,
+                                                        'fieldname' => $LANG['subscribe_to'].$alias,
+                                                        'fieldtype' => 'tickbox',
+                                                        'description' => $LANG['subscribe_to_list'],
+                                                        'fieldoptions' => $list_str,
+                                                        'regexpr' => '',
+                                                        'adminonly' => '',
+                                                        'required' => '',
+                                                        'showorder' => $showOrder,
+                                                        'showinvoice' => '',
+                                                        'sortorder' => 46306
+                                                    ]);
+                                            } catch (\Exception $e) {
+                                                logActivity("ezchimp_output: ERROR: insert custom field: " . $e->getMessage());
+                                            }
+                                        }
+                                    } catch (\Exception $e) {
+                                        logActivity("ezchimp_output: ERROR: get subscription field ID 1: " . $e->getMessage());
+                                    }
 				    			}
 				    		}
 					    	if ($ezconf->debug > 0) {
@@ -1092,91 +1673,151 @@ function ezchimp_output($vars) {
 			    			foreach ($activelists as $list_id => $maingroups) {
                                 /* Remove web hook */
                                 if (!empty($vars['baseurl'])) {
-                                    $params = array(
+                                    $params = [
                                         'apikey' => $apikey,
                                         'id' => $list_id,
                                         'url' => $vars['baseurl']."/ezchimp_webhook.php"
-                                    );
-                                    _ezchimp_mailchimp_api('listWebhookDel', $params, $ezconf);
+                                    ];
+                                    _ezchimp_listWebhookDel($params, $ezvars);
                                     $removed_webhooks[$list_id] = true;
                                 }
 			    				if (!is_array($maingroups)) {
 			    					/* This is a list without groups */
 			    					if (!isset($activelists_update[$list_id]) || is_array($activelists_update[$list_id])) {
 			    						$list_str = $list_id;
-			    						$query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldoptions`='".mysql_real_escape_string($list_str)."'";
-			    						$result = mysql_query($query);
-					    				if (mysql_num_rows($result) > 0) {
-					    					$row = mysql_fetch_assoc($result);
-					    					$custom_field_id = $row['id'];
-					    					$query = "DELETE FROM `tblcustomfieldsvalues` WHERE `fieldid`=$custom_field_id";
-			    							mysql_query($query);
-			    							$query = "DELETE FROM `tblcustomfields` WHERE `id`=$custom_field_id";
-			    							mysql_query($query);
-					    				}
-			    						if ($ezconf->debug > 1) {
-			    							logActivity("ezchimp_output: delete active - $list_str");
-			    						}
+                                        try {
+                                            $rows = Capsule::table('tblcustomfields')
+                                                ->select('id')
+                                                ->where([
+                                                    [ 'type', '=', 'client' ],
+                                                    [ 'fieldtype', '=', 'tickbox' ],
+                                                    [ 'sortorder', '=', 46306 ],
+                                                    [ 'fieldoptions', '=', $list_str ]
+                                                ])
+                                                ->get();
+                                            if ($rows[0]) {
+                                                $customFieldId = $rows[0]->id;
+                                                if ($ezconf->debug > 0) {
+                                                    logActivity("ezchimp_output: delete custom field ID - $customFieldId");
+                                                }
+                                                try {
+                                                    Capsule::table('tblcustomfieldsvalues')
+                                                        ->where([
+                                                            [ 'fieldid', '=', $customFieldId ]
+                                                        ])
+                                                        ->delete();
+                                                    Capsule::table('tblcustomfields')
+                                                        ->where([
+                                                            [ 'id', '=', $customFieldId ]
+                                                        ])
+                                                        ->delete();
+                                                    if ($ezconf->debug > 1) {
+                                                        logActivity("ezchimp_output: delete active main group - $list_str");
+                                                    }
+                                                } catch (\Exception $e) {
+                                                    logActivity("ezchimp_output: ERROR: delete active: " . $e->getMessage());
+                                                }
+                                            }
+                                        } catch (\Exception $e) {
+                                            logActivity("ezchimp_output: ERROR: get subscription field ID 2: " . $e->getMessage());
+                                        }
 			    					}
 			    				} else {
-			    					foreach ($maingroups as $maingroup => $groups) {
+			    					foreach ($maingroups as $mainGroup => $groups) {
 			    						foreach ($groups as $group => $alias) {
-				    						if (!isset($activelists_update[$list_id][$maingroup][$group])) {
-				    							$list_str = $list_id.'^:'.$maingroup.'^:'.$group;
-					    						$query = "SELECT `id` FROM `tblcustomfields` WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306 AND `fieldoptions`='".mysql_real_escape_string($list_str)."'";
-					    						$result = mysql_query($query);
-							    				if (mysql_num_rows($result) > 0) {
-							    					$row = mysql_fetch_assoc($result);
-							    					$custom_field_id = $row['id'];
-							    					$query = "DELETE FROM `tblcustomfieldsvalues` WHERE `fieldid`=$custom_field_id";
-					    							mysql_query($query);
-					    							$query = "DELETE FROM `tblcustomfields` WHERE `id`=$custom_field_id";
-					    							mysql_query($query);
-							    				}
-					    						if ($ezconf->debug > 1) {
-					    							logActivity("ezchimp_output: delete active - $list_str");
-					    						}
+				    						if (!isset($activelists_update[$list_id][$mainGroup][$group])) {
+				    							$list_str = $list_id.'^:'.$mainGroup.'^:'.$group;
+                                                try {
+                                                    $rows = Capsule::table('tblcustomfields')
+                                                        ->select('id')
+                                                        ->where([
+                                                            [ 'type', '=', 'client' ],
+                                                            [ 'fieldtype', '=', 'tickbox' ],
+                                                            [ 'sortorder', '=', 46306 ],
+                                                            [ 'fieldoptions', '=', $list_str ]
+                                                        ])
+                                                        ->get();
+                                                    if ($rows[0]) {
+                                                        $customFieldId = $rows[0]->id;
+                                                        if ($ezconf->debug > 0) {
+                                                            logActivity("ezchimp_output: delete custom field ID sub group - $customFieldId");
+                                                        }
+                                                        try {
+                                                            Capsule::table('tblcustomfieldsvalues')
+                                                                ->where([
+                                                                    [ 'fieldid', '=', $customFieldId ]
+                                                                ])
+                                                                ->delete();
+                                                            Capsule::table('tblcustomfields')
+                                                                ->where([
+                                                                    [ 'id', '=', $customFieldId ]
+                                                                ])
+                                                                ->delete();
+                                                            if ($ezconf->debug > 1) {
+                                                                logActivity("ezchimp_output: delete active sub group - $list_str");
+                                                            }
+                                                        } catch (\Exception $e) {
+                                                            logActivity("ezchimp_output: ERROR: delete active sub group: " . $e->getMessage());
+                                                        }
+                                                    }
+                                                } catch (\Exception $e) {
+                                                    logActivity("ezchimp_output: ERROR: get subscription field ID 3: " . $e->getMessage());
+                                                }
 				    						}
 			    						}
 			    					}
 			    				}
 			    			}
 				    	}
-                        $webhooks_failed = array();
+
+                        $webhooks_failed = [];
                         /* Add web hook for active lists */
-                        if (!empty($vars['baseurl'])) {
+                        if (!empty($activelists_update) && !empty($vars['baseurl'])) {
                             foreach (array_keys($activelists_update) as $list_id) {
                                 if (!isset($removed_webhooks[$list_id])) {
-                                    $params = array(
+                                    $params = [
                                         'apikey' => $apikey,
                                         'id' => $list_id,
                                         'url' => $vars['baseurl']."/ezchimp_webhook.php"
-                                    );
-                                    _ezchimp_mailchimp_api('listWebhookDel', $params, $ezconf);
+                                    ];
+                                    _ezchimp_listWebhookDel($params, $ezvars);
                                 }
-                                $params = array(
+                                $params = [
                                     'apikey' => $apikey,
                                     'id' => $list_id,
-                                    'url' => $vars['baseurl']."/ezchimp_webhook.php",
-                                    'actions' => array(
-                                                        'subscribe' => false,
-                                                        'unsubscribe' => true,
-                                                        'profile' => false,
-                                                        'cleaned' => false,
-                                                        'upemail' => false,
-                                                        'campaign' => false
-                                                    )
-                                );
-                                if (!_ezchimp_mailchimp_api('listWebhookAdd', $params, $ezconf)) {
+                                    'webhook' => [
+                                        'url' => $vars['baseurl']."/ezchimp_webhook.php",
+                                        'events' => [
+                                            'subscribe' => false,
+                                            'unsubscribe' => true,
+                                            'profile' => false,
+                                            'cleaned' => false,
+                                            'upemail' => false,
+                                            'campaign' => false
+                                        ],
+                                        "sources" => [
+                                            "user" => true,
+                                            "admin" => true,
+                                            "api" => true
+                                        ]
+                                    ]
+                                ];
+                                if (!_ezchimp_listWebhookAdd($params, $ezvars)) {
                                     $webhooks_failed[] = $list_id;
                                 }
                             }
                         }
 				    	$value = serialize($activelists_update);
-				    	$query = "REPLACE INTO `mod_ezchimp` (`setting`, `value`) VALUES ('activelists', '$value')";
-				    	if ($result = mysql_query($query)) {
-				    		$saved = true;
-				    	}
+                        try {
+                            Capsule::table('mod_ezchimp')
+                                ->where([
+                                    [ 'setting', '=', 'activelists' ]
+                                ])
+                                ->update([ 'value' => $value ]);
+                            $saved = true;
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update activelists: " . $e->getMessage());
+                        }
 				    }
 
 	    			echo '<br /><h2>'.$LANG['lists_groups'].'</h2><p>'.$LANG['lists_groups_desc'].'</p>';
@@ -1198,12 +1839,12 @@ function ezchimp_output($vars) {
 		<th width="20%">'.$LANG['alias'].'</th>
 		<th>'.$LANG['interest_groups'].'</th>
 	</tr>';
-	    			$listnames = array();
+	    			$listnames = [];
 	    			foreach ($lists as $name => $list) {
 	    				$listnames[$list['id']] = $name;
 	    				$no_groups = true;
-	    				foreach ($list['groupings'] as $maingroup) {
-	    					if (!empty($maingroup)) {
+	    				foreach ($list['groupings'] as $mainGroup) {
+	    					if (!empty($mainGroup)) {
 	    						$no_groups = false;
 	    						break;
 	    					}
@@ -1218,60 +1859,197 @@ function ezchimp_output($vars) {
 	    					}
 	    					echo ' /> '.$name.'</td></tr>';
 	    				} else {
-	    					foreach ($list['groupings'] as $maingroup => $groups) {
+	    					foreach ($list['groupings'] as $mainGroup => $groups) {
 	    						foreach ($groups as $group) {
-	    							$interest_group = $list['id'].'%#'.$name.'^:'.$maingroup.'^:'.$group;
+	    							$interest_group = $list['id'].'%#'.$name.'^:'.$mainGroup.'^:'.$group;
 	    							echo '<tr>
-	    <td width="20%" class="fieldlabel"><input type="text" name="aliases['.md5($interest_group).']" value="'.$activelists[$list['id']][$maingroup][$group].'" /></td>
+	    <td width="20%" class="fieldlabel"><input type="text" name="aliases['.md5($interest_group).']" value="'.$activelists[$list['id']][$mainGroup][$group].'" /></td>
 	    <td class="fieldarea"><input type="checkbox" name="activelists[]" value="'.$interest_group.'"';
-	    							if (isset($activelists[$list['id']][$maingroup][$group])) {
+	    							if (isset($activelists[$list['id']][$mainGroup][$group])) {
 	    								echo ' checked="checked"';
 	    							}
-	    							echo ' /> '.$name.' &gt; '.$maingroup.' &gt; '.$group.'</td></tr>';
+	    							echo ' /> '.$name.' &gt; '.$mainGroup.' &gt; '.$group.'</td></tr>';
 	    						}
 	    					}
 	    				}
 	    			}
 	    			if ($ezconf->debug > 1) {
-	    				logActivity("ezchimp_output: listnames - ".print_r($listnames, true));
+	    				logActivity("ezchimp_output: listnames 2 - ".print_r($listnames, true));
 	    			}
 	    			$value = serialize($listnames);
-	    			$query = "REPLACE INTO `mod_ezchimp` (`setting`, `value`) VALUES ('listnames', '".mysql_real_escape_string($value)."')";
-	    			$result = mysql_query($query);
+                    try {
+                        Capsule::table('mod_ezchimp')
+                            ->where([
+                                [ 'setting', '=', 'listnames' ]
+                            ])
+                            ->update([ 'value' => $value ]);
+                    } catch (\Exception $e) {
+                        logActivity("ezchimp_output: ERROR: update listnames: " . $e->getMessage());
+                    }
 	    			echo '
 	</tr>
 </table><p align="center"><input type="submit" value="'.$LANG['save'].'" class="ui-button ui-widget ui-state-default ui-corner-all" role="button" aria-disabled="false"></p></form>';
 	    		}
 	    		break;
 
-           case 'autosubscribe':
-                $productgroups = array('Domains');
-                $flag=false;
-	    		$query = "SELECT `name` FROM `tblproductgroups`";
-	    		$result = mysql_query($query);
-	    		while($row = mysql_fetch_assoc($result)) {
-	    			$productgroups[] = $row['name'];
-	    		}
-	    		mysql_free_result($result);
+            case 'affiliatelists':
+                $lists = [];
+                $params = [ 'apikey' => $apikey ];
+	    		$lists_result = _ezchimp_lists($params, $ezvars);
+                if ($ezconf->debug > 3) {
+                    logActivity("ezchimp_output: affiliate lists result 1 - ".print_r($lists_result, true));
+                }
+                if (!empty($lists_result)) {
+                    foreach ($lists_result as $list) {
+                        $params['id'] = $list->id;
+                        $list_groupings = [];
+                        $groupings = _ezchimp_listInterestGroupings($params, $ezvars);
+                        if (!empty($groupings['groupings'])) {
+                            $list_groupings = $groupings['groupings'];
+                        }
+                        $lists[$list->name] = [ 'id' => $list->id, 'groupings' => $list_groupings ];
+                    }
+                }
+                if ($ezconf->debug > 2) {
+                    logActivity("ezchimp_output: affiliate lists - ".print_r($lists, true));
+                }
 
-	    		if (empty($productgroups)) {
-	    			echo '<div class="errorbox"><strong>'.$LANG['add_product_groups'].' <a href="configproducts.php">'.$LANG['product_setup'].'</a></strong></div>';
-	    		} else {
-		    		$lists = $listnames = array();
-		    		$params = array('apikey' => $apikey);
-		    		$lists_result = _ezchimp_mailchimp_api('lists', $params, $ezconf);
-		    		if ($ezconf->debug > 3) {
-		    			logActivity("ezchimp_output: lists result - ".print_r($lists_result, true));
-		    		}
+                if (empty($lists)) {
+                    echo '<div class="errorbox"><strong>'.$LANG['create_list'].'</strong></div>';
+                } else {
+                    if (!empty($settings['affiliatelists'])) {
+                        $affiliatelists = unserialize($settings['affiliatelists']);
+                        if ($ezconf->debug > 1) {
+                            logActivity("ezchimp_output: affiliatelists - ".print_r($affiliatelists, true));
+                        }
+                    } else {
+                        $affiliatelists = [];
+                    }
+                    if (!empty($_POST)) {
+                        $saved = false;
+                        $affiliatelists_update = [];
+                        if (!empty($_POST['affiliatelists'])) {
+                            if ($ezconf->debug > 4) {
+                                logActivity("ezchimp_output: affiliate lists POST - ".print_r($_POST, true));
+                            }
+
+                            foreach ($_POST['affiliatelists'] as $list) {
+                                if (strpos($list, '^:') === false) {
+                                    $list_parts = explode('%#', $list);
+                                    $list_id = $list_parts[0];
+                                    // (NOT USED) $list_name = $list_parts[1];
+                                    $affiliatelists_update[$list_id] = true;
+                                } else {
+                                    $parts = explode('^:', $list);
+                                    if (!empty($parts[2])) {
+                                        $list_parts = explode('%#', $parts[0]);
+                                        $list_id = $list_parts[0];
+                                        // (NOT USED) $list_name = $list_parts[1];
+                                        $mainGroup = $parts[1];
+                                        $group = $parts[2];
+                                        $affiliatelists_update[$list_id][$mainGroup][$group] = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if ($ezconf->debug > 0) {
+                            logActivity("ezchimp_output: affiliatelists update - ".print_r($affiliatelists_update, true));
+                        }
+                        $value = serialize($affiliatelists_update);
+                        try {
+                            Capsule::table('mod_ezchimp')
+                                ->where([
+                                    [ 'setting', '=', 'affiliatelists' ]
+                                ])
+                                ->update([ 'value' => $value ]);
+                            $saved = true;
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update affiliatelists: " . $e->getMessage());
+                        }
+                    }
+
+                    echo '<br /><h2>'.$LANG['affiliate_lists_groups'].'</h2><p>'.$LANG['affiliate_lists_groups_desc'].'</p>';
+                    if (!empty($_POST)) {
+                        if ($saved) {
+                            echo '<div class="infobox"><strong>'.$LANG['saved'].'</strong><br>'.$LANG['saved_desc'].'</div>';
+                            $affiliatelists = $affiliatelists_update;
+                        } else {
+                            echo '<div class="errorbox"><strong>'.$LANG['save_failed'].'</strong><br>'.$LANG['save_failed_desc'].'</div>';
+                        }
+                    }
+                    echo '<form name="ezchimpAffiliateLists" method="POST"><table class="form" width="100%" border="0" cellspacing="2" cellpadding="3">
+	<tr>
+		<th>'.$LANG['interest_groups'].'</th>
+	</tr>';
+                    foreach ($lists as $name => $list) {
+                        $no_groups = true;
+                        foreach ($list['groupings'] as $mainGroup) {
+                            if (!empty($mainGroup)) {
+                                $no_groups = false;
+                                break;
+                            }
+                        }
+                        if ($no_groups) {
+                            $interest_group = $list['id'].'%#'.$name;
+                            echo '<tr>
+	    <td class="fieldarea"><input type="checkbox" name="affiliatelists[]" value="'.$interest_group.'"';
+                            if (isset($affiliatelists[$list['id']])) {
+                                echo ' checked="checked"';
+                            }
+                            echo ' /> '.$name.'</td></tr>';
+                        } else {
+                            foreach ($list['groupings'] as $mainGroup => $groups) {
+                                foreach ($groups as $group) {
+                                    $interest_group = $list['id'].'%#'.$name.'^:'.$mainGroup.'^:'.$group;
+                                    echo '<tr>
+	    <td class="fieldarea"><input type="checkbox" name="affiliatelists[]" value="'.$interest_group.'"';
+                                    if (isset($affiliatelists[$list['id']][$mainGroup][$group])) {
+                                        echo ' checked="checked"';
+                                    }
+                                    echo ' /> '.$name.' &gt; '.$mainGroup.' &gt; '.$group.'</td></tr>';
+                                }
+                            }
+                        }
+                    }
+                    echo '
+	</tr>
+</table><p align="center"><input type="submit" value="'.$LANG['save'].'" class="ui-button ui-widget ui-state-default ui-corner-all" role="button" aria-disabled="false"></p></form>';
+                }
+                break;
+
+           case 'autosubscribe':
+               $productGroups = [ 'Domains' ];
+               $flag = false;
+               try {
+                   $rows = Capsule::table('tblproductgroups')
+                       ->select('name')
+                       ->get();
+                   foreach ($rows as $row) {
+                       $productGroups[] = $row->name;
+                   }
+               } catch (\Exception $e) {
+                   logActivity("ezchimp_output: ERROR: get client product groups 2: " . $e->getMessage());
+               }
+
+               if (empty($productGroups)) {
+                   echo '<div class="errorbox"><strong>' . $LANG['add_product_groups'] . ' <a href="configproducts.php">' . $LANG['product_setup'] . '</a></strong></div>';
+               } else {
+                   $lists = $listnames = [];
+                   $params = [ 'apikey' => $apikey ];
+                   $lists_result = _ezchimp_lists($params, $ezvars);
+                   if ($ezconf->debug > 3) {
+                       logActivity("ezchimp_output: lists result 2 - " . print_r($lists_result, true));
+                   }
 
                     if (!empty($settings['activelists'])) {
                         $activelists = unserialize($settings['activelists']);
                         if (!empty($activelists)) {
                             foreach ($activelists as $listid => $list){
-                                if (!empty($lists_result->data)) {
-                                    foreach ($lists_result->data as $listname) {
+                                if (!empty($lists_result)) {
+                                    foreach ($lists_result as $listname) {
                                         if(!(strcmp($listname->id,$listid))){
-                                            $lists[$listname->name] = array('id' => $listid, 'groupings' => $list);
+                                            $lists[$listname->name] = [ 'id' => $listid, 'groupings' => $list ];
                                         }
                                     }
                                 }
@@ -1291,9 +2069,9 @@ function ezchimp_output($vars) {
                         if (!empty($_POST)) {
                             $flag=false;
                             if ($ezconf->debug > 4) {
-                                logActivity("ezchimp_output: POST - " . print_r($_POST, true));
+                                logActivity("ezchimp_output: POST 2 - " . print_r($_POST, true));
                             }
-                            $groupings = $groupings1 = array();
+                            $groupings = $groupings1 = [];
                             $saved = $saved1 = false;
                             if (!empty($_POST['groupings'])) {
                                 foreach ($_POST['groupings'] as $grouping) {
@@ -1319,31 +2097,34 @@ function ezchimp_output($vars) {
                                     }
                                 }
                             }
+                            if ($ezconf->debug > 0) {
+                                logActivity("ezchimp_output: groupings1 update - " . print_r($groupings1, true));
+                            }
+
                             foreach ($groupings as $lid => $l1) {
-                                foreach ($groupings1 as $lid2 => $l2) {
-                                    foreach ($l1 as $m1) {
-                                        if (!(is_array($m1))) {
-                                            foreach ($l2 as $m2) {
-                                                if (!(is_array($m2))) {
-                                                    if (!(strcmp($m1, $m2))) {
-                                                        if ($ezconf->debug > 0) {
-                                                            logActivity("ezchimp_output: common grps1 - " . print_r($m1, true));
-                                                        }
-                                                        $flag = true;
+                                $l2 = $groupings1[$lid];
+                                foreach ($l1 as $m1) {
+                                    if (!(is_array($m1))) {
+                                        foreach ($l2 as $m2) {
+                                            if (!(is_array($m2))) {
+                                                if (!(strcmp($m1, $m2))) {
+                                                    $flag = true;
+                                                    if ($ezconf->debug > 0) {
+                                                        logActivity("ezchimp_output: common grps1 - " . print_r($m1, true));
                                                     }
                                                 }
                                             }
                                         }
-                                        foreach ($l2 as $m2) {
-                                            foreach ($m1 as $g1) {
-                                                foreach ($m2 as $g2) {
-                                                    foreach ($g1 as $n1) {
-                                                        foreach ($g2 as $n2) {
-                                                            if (!(strcmp($n1, $n2))) {
-                                                                $flag = true;
-                                                                if ($ezconf->debug > 0) {
-                                                                    logActivity("ezchimp_output: common grps2 - " . print_r($n1, true));
-                                                                }
+                                    }
+                                    foreach ($l2 as $m2) {
+                                        foreach ($m1 as $g1) {
+                                            foreach ($m2 as $g2) {
+                                                foreach ($g1 as $n1) {
+                                                    foreach ($g2 as $n2) {
+                                                        if (!(strcmp($n1, $n2))) {
+                                                            $flag = true;
+                                                            if ($ezconf->debug > 0) {
+                                                                logActivity("ezchimp_output: common grps2 - " . print_r($n1, true));
                                                             }
                                                         }
                                                     }
@@ -1353,21 +2134,41 @@ function ezchimp_output($vars) {
                                     }
                                 }
                             }
+
                             if ($ezconf->debug > 0) {
                                 logActivity("ezchimp_output: subscribed update - " . print_r($groupings, true));
                             }
-                            $value = serialize($groupings);
-                            $query = "REPLACE INTO `mod_ezchimp` (`setting`, `value`) VALUES ('groupings', '$value')";
-                            if ($result = mysql_query($query)) {
-                                $saved = true;
-                            }
-                            if ($ezconf->debug > 0) {
-                                logActivity("ezchimp_output: unsubscribed update - " . print_r($groupings1, true));
-                            }
-                            $value = serialize($groupings1);
-                            $query = "REPLACE INTO `mod_ezchimp` (`setting`, `value`) VALUES ('unsubscribe_groupings', '$value')";
-                            if ($result = mysql_query($query)) {
-                                $saved1 = true;
+                            if ($flag) {
+                                if ($ezconf->debug > 0) {
+                                    logActivity("ezchimp_output: common groups" );
+                                }
+                            } else {
+                                $value = serialize($groupings);
+                                try {
+                                    Capsule::table('mod_ezchimp')
+                                        ->where([
+                                            ['setting', '=', 'groupings']
+                                        ])
+                                        ->update(['value' => $value]);
+                                    $saved = true;
+                                } catch (\Exception $e) {
+                                    logActivity("ezchimp_output: ERROR: update groupings: " . $e->getMessage());
+                                }
+
+                                if ($ezconf->debug > 0) {
+                                    logActivity("ezchimp_output: unsubscribed update - " . print_r($groupings1, true));
+                                }
+                                $value = serialize($groupings1);
+                                try {
+                                    Capsule::table('mod_ezchimp')
+                                        ->where([
+                                            ['setting', '=', 'unsubscribe_groupings']
+                                        ])
+                                        ->update(['value' => $value]);
+                                    $saved1 = true;
+                                } catch (\Exception $e) {
+                                    logActivity("ezchimp_output: ERROR: update unsubscribe_groupings: " . $e->getMessage());
+                                }
                             }
                         } else {
                             $groupings = unserialize($settings['groupings']);
@@ -1375,16 +2176,13 @@ function ezchimp_output($vars) {
                         }
                         echo '<br /><h2>'.$LANG['product_interest_grouping'].'</h2><p>'.$LANG['product_interest_grouping_desc'].'</p>';
                         if (!empty($_POST)) {
+                            if ($flag) {
+                                echo '<div class="infobox"><strong>'.$LANG['common_select'].'</strong></div>';
+                            }
                             if ($saved || $saved1) {
                                 echo '<div class="infobox"><strong>'.$LANG['saved'].'</strong><br>'.$LANG['saved_desc'].'</div>';
                             } else {
                                 echo '<div class="errorbox"><strong>'.$LANG['save_failed'].'</strong><br>'.$LANG['save_failed_desc'].'</div>';
-                            }
-                            if ($flag) {
-                                if ($ezconf->debug > 0) {
-                                    logActivity("ezchimp_output: common groups" );
-                                }
-                                echo '<div class="infobox"><strong>'.$LANG['common select'].'</strong></div>';
                             }
                         } else if (!empty($settings['groupings'])) {
                             $groupings = unserialize($settings['groupings']);
@@ -1406,37 +2204,37 @@ function ezchimp_output($vars) {
 		<th align="left">'.$LANG['subscribe'].'</th>
 	</tr>';
 
-                        foreach ($productgroups as $productgroup) {
+                        foreach ($productGroups as $productGroup) {
                             echo '
 	<tr>
 		<td align="center" width="10%" class="fieldlabel">';
-                            if ('Domains' == $productgroup) {
-                                echo $LANG['Domains'];
+                            if ('Domains' == $productGroup) {
+                                echo $LANG['domains'];
                             } else {
-                                echo $productgroup;
+                                echo $productGroup;
                             }
                             echo '</td>
                         <td width="10%" class="fieldarea">
                         <select class="grouping1" multiple="multiple" name="groupings1[]">';
                         foreach ($lists as $list) {
                             $no_groups = true;
-                            foreach ($list['groupings'] as $maingroup) {
-                                if (!empty($maingroup)) {
+                            foreach ($list['groupings'] as $mainGroup) {
+                                if (!empty($mainGroup)) {
                                     $no_groups = false;
                                     break;
                                 }
                             }
                             if ($no_groups) {
-                                echo '<option value="'.$productgroup.'^:'.$list['id'].'"';
-                                if (isset($groupings1[$productgroup][$list['id']])) {
+                                echo '<option value="'.$productGroup.'^:'.$list['id'].'"';
+                                if (isset($groupings1[$productGroup][$list['id']])) {
                                     echo ' selected="selected"';
                                 }
                                 echo '> '.$list['groupings'].'</option>';
                             } else {
-                                foreach ($list['groupings'] as $maingroup => $groups) {
+                                foreach ($list['groupings'] as $mainGroup => $groups) {
                                     foreach ($groups as $group) {
-                                        echo '<option value="'.$productgroup.'^:'.$list['id'].'^:'.$maingroup.'^:'.$group.'"';
-                                        if (!empty($groupings1[$productgroup][$list['id']][$maingroup]) && in_array($group, $groupings1[$productgroup][$list['id']][$maingroup])) {
+                                        echo '<option value="'.$productGroup.'^:'.$list['id'].'^:'.$mainGroup.'^:'.$group.'"';
+                                        if (!empty($groupings1[$productGroup][$list['id']][$mainGroup]) && in_array($group, $groupings1[$productGroup][$list['id']][$mainGroup])) {
                                             echo ' selected="selected"';
                                         }
                                         echo '> '.$group.' </option>';
@@ -1450,24 +2248,24 @@ function ezchimp_output($vars) {
                             echo '<select class="groupings" multiple="multiple" name="groupings[]">';
                             foreach ($lists as $list) {
                                 $no_groups = true;
-                                foreach ($list['groupings'] as $maingroup) {
-                                    if (!empty($maingroup)) {
+                                foreach ($list['groupings'] as $mainGroup) {
+                                    if (!empty($mainGroup)) {
                                         $no_groups = false;
                                         break;
                                     }
                                 }
                                 if ($no_groups) {
-                                    echo '<option value="'.$productgroup.'^:'.$list['id'].'"';
-                                    if (isset($groupings[$productgroup][$list['id']])) {
+                                    echo '<option value="'.$productGroup.'^:'.$list['id'].'"';
+                                    if (isset($groupings[$productGroup][$list['id']])) {
                                         echo ' selected="selected"';
                                     }
                                     echo '> '.$list['groupings'].'</option>';
                                 }
                                 else{
-                                    foreach ($list['groupings'] as $maingroup => $groups) {
+                                    foreach ($list['groupings'] as $mainGroup => $groups) {
                                         foreach ($groups as $group) {
-                                            echo '<option value="'.$productgroup.'^:'.$list['id'].'^:'.$maingroup.'^:'.$group.'"';
-                                            if (!empty($groupings[$productgroup][$list['id']][$maingroup]) && in_array($group, $groupings[$productgroup][$list['id']][$maingroup])) {
+                                            echo '<option value="'.$productGroup.'^:'.$list['id'].'^:'.$mainGroup.'^:'.$group.'"';
+                                            if (!empty($groupings[$productGroup][$list['id']][$mainGroup]) && in_array($group, $groupings[$productGroup][$list['id']][$mainGroup])) {
                                                 echo ' selected="selected"';
                                             }
                                             echo '> '.$group.' </option>';
@@ -1487,13 +2285,7 @@ function ezchimp_output($vars) {
 	    	default:
 			    if (!empty($_POST)) {
 	    			$saved = true;
-	    			$settings_update = array();
-
-			    	if (isset($_POST['double_optin']) && ('on' == $_POST['double_optin'])) {
-			    		$settings_update['double_optin'] = 'on';
-			    	} else {
-			    		$settings_update['double_optin'] = '';
-			    	}
+	    			$settings_update = [];
 
 			    	if (isset($_POST['delete_member']) && ('on' == $_POST['delete_member'])) {
 			    		$settings_update['delete_member'] = 'on';
@@ -1501,77 +2293,155 @@ function ezchimp_output($vars) {
 			    		$settings_update['delete_member'] = '';
 			    	}
 
-			    	if (isset($_POST['send_goodbye']) && ('on' == $_POST['send_goodbye'])) {
-			    		$settings_update['send_goodbye'] = 'on';
-			    	} else {
-			    		$settings_update['send_goodbye'] = '';
-			    	}
-
-			    	if (isset($_POST['send_notify']) && ('on' == $_POST['send_notify'])) {
-			    		$settings_update['send_notify'] = 'on';
-			    	} else {
-			    		$settings_update['send_notify'] = '';
-			    	}
-
 			    	if (isset($_POST['format_select']) && ('on' == $_POST['format_select'])) {
 			    		$settings_update['format_select'] = 'on';
 			    		if (isset($settings_update['showorder'])) {
-			    			$showorder = $settings_update['showorder'];
+			    			$showOrder = $settings_update['showorder'];
 			    		} else if (isset($settings['showorder'])) {
-			    			$showorder = $settings['showorder'];
+			    			$showOrder = $settings['showorder'];
 			    		} else {
-			    			$showorder = '';
+			    			$showOrder = '';
 			    		}
-						$query = "UPDATE `tblcustomfields` SET `adminonly`='', `showorder`='$showorder' WHERE `type`='client' AND `fieldname`='".mysql_real_escape_string($LANG['email_format'])."' AND `fieldtype`='dropdown' AND `sortorder`=46307";
-						$result = mysql_query($query);
+                        try {
+                            Capsule::table('tblcustomfields')
+                                ->where([
+                                    [ 'type', '=', 'client' ],
+                                    [ 'fieldtype', '=', 'dropdown' ],
+                                    [ 'sortorder', '=', 46307 ]
+                                ])
+                                ->update([
+                                    'adminonly' => '',
+                                    'showorder' => $showOrder
+                                ]);
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update email format custom field 3: " . $e->getMessage());
+                        }
 			    	} else {
 			    		$settings_update['format_select'] = '';
-						$query = "UPDATE `tblcustomfields` SET `adminonly`='on', `showorder`='' WHERE `type`='client' AND `fieldname`='".mysql_real_escape_string($LANG['email_format'])."' AND `fieldtype`='dropdown' AND `sortorder`=46307";
-						$result = mysql_query($query);
+                        try {
+                            Capsule::table('tblcustomfields')
+                                ->where([
+                                    [ 'type', '=', 'client' ],
+                                    [ 'fieldtype', '=', 'dropdown' ],
+                                    [ 'sortorder', '=', 46307 ]
+                                ])
+                                ->update([
+                                    'adminonly' => 'on',
+                                    'showorder' => ''
+                                ]);
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update email format custom field 4: " . $e->getMessage());
+                        }
 			    	}
 
 			    	if (isset($_POST['subscribe_contacts']) && ('on' == $_POST['subscribe_contacts'])) {
 			    		$settings_update['subscribe_contacts'] = 'on';
 			    		if (isset($settings_update['showorder'])) {
-			    			$showorder = $settings_update['showorder'];
+			    			$showOrder = $settings_update['showorder'];
 			    		} else if (isset($settings['showorder'])) {
-			    			$showorder = $settings['showorder'];
+			    			$showOrder = $settings['showorder'];
 			    		} else {
-			    			$showorder = '';
+			    			$showOrder = '';
 			    		}
-						$query = "UPDATE `tblcustomfields` SET `adminonly`='', `showorder`='$showorder' WHERE `type`='client' AND `fieldname`='".mysql_real_escape_string($LANG['subscribe_all_contacts'])."' AND `fieldtype`='tickbox' AND `sortorder`=46309";
-						$result = mysql_query($query);
+                        try {
+                            Capsule::table('tblcustomfields')
+                                ->where([
+                                    [ 'type', '=', 'client' ],
+                                    [ 'fieldtype', '=', 'tickbox' ],
+                                    [ 'sortorder', '=', 46309 ]
+                                ])
+                                ->update([
+                                    'adminonly' => '',
+                                    'showorder' => $showOrder
+                                ]);
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update subscribe all contacts custom field 3: " . $e->getMessage());
+                        }
 			    	} else {
 			    		$settings_update['subscribe_contacts'] = '';
-						$query = "UPDATE `tblcustomfields` SET `adminonly`='on', `showorder`='' WHERE `type`='client' AND `fieldname`='".mysql_real_escape_string($LANG['subscribe_all_contacts'])."' AND `fieldtype`='tickbox' AND `sortorder`=46309";
-						$result = mysql_query($query);
+                        try {
+                            Capsule::table('tblcustomfields')
+                                ->where([
+                                    [ 'type', '=', 'client' ],
+                                    [ 'fieldtype', '=', 'tickbox' ],
+                                    [ 'sortorder', '=', 46309 ]
+                                ])
+                                ->update([
+                                    'adminonly' => 'on',
+                                    'showorder' => ''
+                                ]);
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update subscribe all contacts custom field 4: " . $e->getMessage());
+                        }
 			    	}
 
 			    	if (isset($_POST['interest_select']) && ('on' == $_POST['interest_select'])) {
 			    		$settings_update['interest_select'] = 'on';
 			    		if (isset($settings_update['showorder'])) {
-			    			$showorder = $settings_update['showorder'];
+			    			$showOrder = $settings_update['showorder'];
 			    		} else if (isset($settings['showorder'])) {
-			    			$showorder = $settings['showorder'];
+			    			$showOrder = $settings['showorder'];
 			    		} else {
-			    			$showorder = '';
+			    			$showOrder = '';
 			    		}
-						$query = "UPDATE `tblcustomfields` SET `adminonly`='', `showorder`='$showorder' WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306";
-						$result = mysql_query($query);
+                        try {
+                            Capsule::table('tblcustomfields')
+                                ->where([
+                                    [ 'type', '=', 'client' ],
+                                    [ 'fieldtype', '=', 'tickbox' ],
+                                    [ 'sortorder', '=', 46306 ]
+                                ])
+                                ->update([
+                                    'adminonly' => '',
+                                    'showorder' => $showOrder
+                                ]);
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update newsletter custom fields 2: " . $e->getMessage());
+                        }
 			    	} else {
 			    		$settings_update['interest_select'] = '';
-						$query = "UPDATE `tblcustomfields` SET `adminonly`='on', `showorder`='' WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder`=46306";
-						$result = mysql_query($query);
+                        try {
+                            Capsule::table('tblcustomfields')
+                                ->where([
+                                    [ 'type', '=', 'client' ],
+                                    [ 'fieldtype', '=', 'tickbox' ],
+                                    [ 'sortorder', '=', 46306 ]
+                                ])
+                                ->update([
+                                    'adminonly' => 'on',
+                                    'showorder' => ''
+                                ]);
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update newsletter custom fields 3: " . $e->getMessage());
+                        }
 			    	}
 
 			    	if (isset($_POST['showorder']) && ('on' == $_POST['showorder'])) {
 			    		$settings_update['showorder'] = 'on';
-						$query = "UPDATE `tblcustomfields` SET `showorder`='on' WHERE `adminonly`='' AND `type`='client' AND `fieldtype`='tickbox' AND `sortorder` IN (46306, 46307, 46309)";
-						$result = mysql_query($query);
+                        try {
+                            Capsule::table('tblcustomfields')
+                                ->where([
+                                    [ 'type', '=', 'client' ],
+                                    [ 'fieldtype', '=', 'tickbox' ]
+                                ])
+                                ->whereIn('sortorder', [ 46306, 46307, 46309 ])
+                                ->update([ 'showorder' => 'on' ]);
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update custom fields show order 1: " . $e->getMessage());
+                        }
 			    	} else {
 			    		$settings_update['showorder'] = '';
-						$query = "UPDATE `tblcustomfields` SET `showorder`='' WHERE `type`='client' AND `fieldtype`='tickbox' AND `sortorder` IN (46306, 46307, 46309)";
-						$result = mysql_query($query);
+                        try {
+                            Capsule::table('tblcustomfields')
+                                ->where([
+                                    [ 'type', '=', 'client' ],
+                                    [ 'fieldtype', '=', 'tickbox' ]
+                                ])
+                                ->whereIn('sortorder', [ 46306, 46307, 46309 ])
+                                ->update([ 'showorder' => '' ]);
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update custom fields show order 2: " . $e->getMessage());
+                        }
 			    	}
 
 			    	if (isset($_POST['default_subscribe']) && ('on' == $_POST['default_subscribe'])) {
@@ -1580,7 +2450,7 @@ function ezchimp_output($vars) {
 			    		$settings_update['default_subscribe'] = '';
 			    	}
 
-			    	if (isset($_POST['default_format']) && (in_array($_POST['default_format'], array('html', 'text', 'mobile')))) {
+			    	if (isset($_POST['default_format']) && (in_array($_POST['default_format'], [ 'html', 'text', 'mobile' ]))) {
 			    		$settings_update['default_format'] = $_POST['default_format'];
 			    	} else {
 			    		$settings_update['default_format'] = 'html';
@@ -1593,15 +2463,21 @@ function ezchimp_output($vars) {
 			    	}
 
 			    	if ($ezconf->debug > 0) {
-			    		logActivity("ezchimp_output: module settings update - ".print_r($settings_update, true));
+			    		logActivity("ezchimp_output: update module settings - ".print_r($settings_update, true));
 			    	}
 
 			    	foreach ($settings_update as $setting => $value) {
-			    		$query = "REPLACE INTO `mod_ezchimp` (`setting`, `value`) VALUES ('$setting', '$value')";
-			    		if (!($result = mysql_query($query))) {
-			    			$saved = false;
-			    			break;
-			    		}
+                        try {
+                            Capsule::table('mod_ezchimp')
+                                ->where([
+                                    [ 'setting', '=', $setting ]
+                                ])
+                                ->update([ 'value' => $value ]);
+                        } catch (\Exception $e) {
+                            logActivity("ezchimp_output: ERROR: update module setting: $setting - " . $e->getMessage());
+                            $saved = false;
+                            break;
+                        }
 			    	}
 			    }
 
@@ -1616,36 +2492,12 @@ function ezchimp_output($vars) {
 				}
 				echo '<form name="ezchimpConf" method="POST"><table class="form" width="100%" border="0" cellspacing="2" cellpadding="3">
 	<tr>
-		<td width="20%" class="fieldlabel">'.$LANG['double_optin'].'</td>
-		<td class="fieldarea"><input type="checkbox" name="double_optin" value="on"';
-			    if (isset($settings['double_optin']) && ('on' == $settings['double_optin'])) {
-			    	echo ' checked="checked"';
-			    }
-				echo ' /> '.$LANG['double_optin_desc'].'</td>
-	</tr>
-	<tr>
 		<td width="20%" class="fieldlabel">'.$LANG['delete_member'].'</td>
 		<td class="fieldarea"><input type="checkbox" name="delete_member" value="on"';
 			    if (isset($settings['delete_member']) && ('on' == $settings['delete_member'])) {
 			    	echo ' checked="checked"';
 			    }
 				echo ' /> '.$LANG['delete_member_desc'].'</td>
-	</tr>
-	<tr>
-		<td width="20%" class="fieldlabel">'.$LANG['send_goodbye'].'</td>
-		<td class="fieldarea"><input type="checkbox" name="send_goodbye" value="on"';
-			    if (isset($settings['send_goodbye']) && ('on' == $settings['send_goodbye'])) {
-			    	echo ' checked="checked"';
-			    }
-				echo ' /> '.$LANG['send_goodbye_desc'].'</td>
-	</tr>
-	<tr>
-		<td width="20%" class="fieldlabel">'.$LANG['send_notify'].'</td>
-		<td class="fieldarea"><input type="checkbox" name="send_notify" value="on"';
-			    if (isset($settings['send_notify']) && ('on' == $settings['send_notify'])) {
-			    	echo ' checked="checked"';
-			    }
-				echo ' /> '.$LANG['send_notify_desc'].'</td>
 	</tr>
 	<tr>
 		<td width="20%" class="fieldlabel">'.$LANG['interest_select'].'</td>
@@ -1724,100 +2576,22 @@ function ezchimp_output($vars) {
 
 }
 
-//function ezchimp_sidebar($vars) {
-//
-//    $modulelink = $vars['modulelink'];
-//    $LANG = $vars['_lang'];
-//
-//    $sidebar = '<ul class="menu">
-//        <li><a href="'.$modulelink.'">'.$LANG['settings'].'</a></li>
-//        <li><a href="'.$modulelink.'&page=lists">'.$LANG['lists_groups'].'</a></li>
-//        <li><a href="'.$modulelink.'&page=status">'.$LANG['status'].'</a></li>
-//        <li><a href="'.$modulelink.'&page=tools">'.$LANG['tools'].'</a></li>
-//    </ul>';
-//    return $sidebar;
-//
-//}
-
-
-/**
- * Function for calling MailChimp API
- *
- * @param string
- * @param string
- * @param string
- * @param string
- */
-function _ezchimp_mailchimp_api($method, $params, &$ezvars) {
-	$payload = json_encode($params);
-	$parts = explode('-', $params['apikey']);
-	$dc = $parts[1];
-	$submit_url = "http://$dc.api.mailchimp.com/1.3/?method=$method";
-
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_URL, $submit_url);
-	curl_setopt($ch, CURLOPT_HEADER, false);
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($ch, CURLOPT_POST, true);
-	curl_setopt($ch, CURLOPT_POSTFIELDS, urlencode($payload));
-	curl_setopt($ch, CURLOPT_USERAGENT, "ezchimp");
-	curl_setopt($ch, CURLOPT_TIMEOUT, 100);
-	$retval = curl_exec($ch);
-	curl_close($ch);
-
-	if ($ezvars->debug > 0) {
-		logActivity("_ezchimp_mailchimp_api: URL - $submit_url, Payload - ".htmlentities($payload).", Response - ".htmlentities($retval));
-	}
-	return json_decode($retval);
-}
-
-
-function _ezchimp_unsubscribe($subscription, $email, &$ezvars) {
-    $params = array(
-        'id' => $subscription['list'],
-        'email_address' => $email,
-        'apikey' => $ezvars->config['apikey'],
-        'delete_member' => (isset($ezvars->settings['delete_member']) && ('on' == $ezvars->settings['delete_member'])) ? true : false,
-        'send_goodbye' => (isset($ezvars->settings['send_goodbye']) && ('on' == $ezvars->settings['send_goodbye'])) ? true : false,
-        'send_notify' => (isset($ezvars->settings['send_notify']) && ('on' == $ezvars->settings['send_notify'])) ? true : false,
-    );
-    _ezchimp_mailchimp_api('listUnsubscribe', $params, $ezvars);
-}
-
-
-function _ezchimp_subscribe($subscription, $firstname, $lastname, $email, $email_type='html', &$ezvars) {
-	$merge_vars = array(
-        'MERGE0' => $email,
-		'MERGE1' => $firstname,
-		'MERGE2' => $lastname
-		);
-	if (!empty($subscription['grouping'])) {
-		$merge_vars['GROUPINGS'] = $subscription['grouping'];
-	}
-
-	$params = array(
-			'id' => $subscription['list'],
-			'apikey' => $ezvars->config['apikey'],
-			'email_address' => $email,
-			'email_type' => $email_type,
-			'double_optin' => (isset($ezvars->settings['double_optin']) && ('on' == $ezvars->settings['double_optin'])) ? true : false,
-			'merge_vars' => $merge_vars,
-			'update_existing' => true,
-			'replace_interests' => true,
-			);
-	_ezchimp_mailchimp_api('listSubscribe', $params, $ezvars);
-}
-
 /**
  * Return ezchimp config
  */
 function _ezchimp_config(&$ezconf) {
-	$config = array();
-	$result = select_query('tbladdonmodules', 'setting, value', array('module' => 'ezchimp'));
-	while ($row = mysql_fetch_assoc($result)) {
-		$config[$row['setting']] = $row['value'];
-	}
-	mysql_free_result($result);
+	$config = [];
+    try {
+        $rows = Capsule::table('tbladdonmodules')
+            ->select('setting', 'value')
+            ->where('module', '=', 'ezchimp')
+            ->get();
+        foreach ($rows as $row) {
+            $config[$row->setting] = $row->value;
+        }
+    } catch (\Exception $e) {
+        logActivity("_ezchimp_config: ERROR: get module config: " . $e->getMessage());
+    }
 	if (isset($config['debug'])) {
 		$ezconf->debug = intval($config['debug']);
 	}
@@ -1831,62 +2605,84 @@ function _ezchimp_config(&$ezconf) {
  * Return ezchimp settings
  */
 function _ezchimp_settings(&$ezconf) {
-	$settings = array();
-	$result = select_query('mod_ezchimp', 'setting, value');
-	while($row = mysql_fetch_assoc($result)) {
-		$settings[$row['setting']] = $row['value'];
-	}
-	mysql_free_result($result);
+	$settings = [];
+    try {
+        $rows = Capsule::table('mod_ezchimp')
+            ->select('setting', 'value')
+            ->get();
+        foreach ($rows as $row) {
+            $settings[$row->setting] = $row->value;
+        }
+    } catch (\Exception $e) {
+        logActivity("_ezchimp_settings: ERROR: get module settings: " . $e->getMessage());
+    }
 	if ($ezconf->debug > 0) {
-		logActivity("_ezchimp_settings: ".print_r($settings, true));
+		logActivity("_ezchimp_settings: module settings - ".print_r($settings, true));
 	}
 	return $settings;
 }
 
 function _ezchimp_listgroup_subscriptions($client_id, &$ezvars) {
-    $fields = array();
-    $result = select_query('tblcustomfields', 'id, fieldoptions', array('type' => 'client', 'fieldtype' => 'tickbox', 'sortorder' => 46306));
-    while ($row = mysql_fetch_assoc($result)) {
-        $fields[$row['id']] = $row['fieldoptions'];
+    $fields = [];
+    try {
+        $rows = Capsule::table('tblcustomfields')
+            ->select('id', 'fieldoptions')
+            ->where([
+                [ 'type', '=', 'client' ],
+                [ 'fieldtype', '=', 'tickbox' ],
+                [ 'sortorder', '=', 46306 ]
+            ])
+            ->get();
+        foreach ($rows as $row) {
+            $fields[$row->id] = $row->fieldoptions;
+        }
+    } catch (\Exception $e) {
+        logActivity("_ezchimp_listgroup_subscriptions: ERROR: get field options: " . $e->getMessage());
     }
-    mysql_free_result($result);
     if ($ezvars->debug > 2) {
         logActivity("_ezchimp_listgroup_subscriptions: fields - ".print_r($fields, true));
     }
 
-    $list_groups = array();
-    $result = select_query('tblcustomfieldsvalues', 'fieldid, value', array('relid' => $client_id));
-
-    while ($row = mysql_fetch_assoc($result)) {
-        if (isset($fields[$row['fieldid']])) {
-            $list = $fields[$row['fieldid']];
-            $status = $row['value'];
-            if ('on' == $status) {
-                if (strpos($list, '^:') === false) {
-                    $list_groups[$list] = array();
-                } else {
-                    $parts = explode('^:', $list);
-                    if (!empty($parts[2])) {
-                        $list_id = $parts[0];
-                        $maingroup = $parts[1];
-                        $group = $parts[2];
-                        $list_groups[$list_id][$maingroup][] = $group;
+    $list_groups = [];
+    try {
+        $rows = Capsule::table('tblcustomfieldsvalues')
+            ->select('fieldid', 'value')
+            ->where([
+                [ 'relid', '=', $client_id ]
+            ])
+            ->get();
+        foreach ($rows as $row) {
+            if (isset($fields[$row->fieldid])) {
+                $list = $fields[$row->fieldid];
+                $status = $row->value;
+                if ('on' == $status) {
+                    if (strpos($list, '^:') === false) {
+                        $list_groups[$list] = [];
+                    } else {
+                        $parts = explode('^:', $list);
+                        if (!empty($parts[2])) {
+                            $list_id = $parts[0];
+                            $mainGroup = $parts[1];
+                            $group = $parts[2];
+                            $list_groups[$list_id][$mainGroup][] = $group;
+                        }
                     }
                 }
             }
         }
-    }
-    mysql_free_result($result);
-    if ($ezvars->debug > 2) {
-        logActivity("_ezchimp_listgroup_subscriptions: list_groups - ".print_r($list_groups, true));
+        if ($ezvars->debug > 2) {
+            logActivity("_ezchimp_listgroup_subscriptions: list_groups - ".print_r($list_groups, true));
+        }
+    } catch (\Exception $e) {
+        logActivity("_ezchimp_listgroup_subscriptions: ERROR: get custom field values: " . $e->getMessage());
     }
 
-    $subscriptions = array();
-    $all_lists = array();
-    $params = array('apikey' => $ezvars->config['apikey']);
-    $lists_result = _ezchimp_mailchimp_api('lists', $params, $ezvars);
-    if (!empty($lists_result->data)) {
-        foreach ($lists_result->data as $list) {
+    $subscriptions = [];
+    $all_lists = [];
+    $params = [ 'apikey' => $ezvars->config['apikey'] ];
+    $lists_result = _ezchimp_lists($params, $ezvars);
+    if (!empty($lists_result)) {
+        foreach ($lists_result as $list) {
             $all_lists[$list->id] = 1;
         }
     }
@@ -1897,15 +2693,15 @@ function _ezchimp_listgroup_subscriptions($client_id, &$ezvars) {
     foreach ($list_groups as $list => $groups) {
         unset($all_lists[$list]);
         if (empty($groups)) {
-            $subscriptions[] = array('list' => $list);
+            $subscriptions[] = [ 'list' => $list ];
         } else {
-            $subscription_groupings = array();
-            $all_groups = array();
+            $subscription_groupings = [];
+            $all_groups = [];
             $params['id'] = $list;
-            $groupings = _ezchimp_mailchimp_api('listInterestGroupings', $params, $ezvars);
-            if (!empty($groupings)) {
-                foreach ($groupings as $grouping) {
-                    $all_groups[$grouping->name] = 1;
+            $groupings = _ezchimp_listInterestGroupings($params, $ezvars);
+            if (!empty($groupings['groupings'])) {
+                foreach ($groupings['groupings'] as $grouping) {
+                    $all_groups[$grouping] = 1;
                 }
             }
             if ($ezvars->debug > 2) {
@@ -1914,32 +2710,17 @@ function _ezchimp_listgroup_subscriptions($client_id, &$ezvars) {
             if ($ezvars->debug > 2) {
                 logActivity("_ezchimp_listgroup_subscriptions: interest_groups - ".print_r($groupings, true));
             }
-            foreach ($groups as $maingroup => $groups) {
+            foreach ($groups as $maingroup => $sub_groups) {
                 unset($all_groups[$maingroup]);
-                $groups_str = '';
-                foreach ($groups as $group) {
-                    $groups_str .= str_replace(',', '\\,', $group).',';
-                }
-                if ('' != $groups_str) {
-                    $groups_str = substr($groups_str, 0, -1);
-                    $subscription_groupings[] = array('name' => $maingroup, 'groups' => $groups_str);
-                }
+                $subscription_groupings[] = [ 'name' => $maingroup, 'groups' => array_keys($sub_groups) ];
             }
             foreach ($all_groups as $gr) {
                 if ($ezvars->debug > 2) {
                     logActivity("_ezchimp_listgroup_subscriptions: all_groups2 - ".print_r($gr, true));
                 }
             }
-//            if (!empty($all_groups)) {
-//                foreach ($all_groups as $maingroup => $one) {
-//                    $subscription_groupings[] = array('name' => $maingroup, 'groups' => '');
-//                    if ($ezvars->debug > 3) {
-//                        logActivity("_ezchimp_listgroup_subscriptions: empty main group - $maingroup");
-//                    }
-//                }
-//            }
             if (!empty($subscription_groupings)) {
-                $subscriptions[] = array('list' => $list, 'grouping' => $subscription_groupings);
+                $subscriptions[] = [ 'list' => $list, 'grouping' => $subscription_groupings ];
             }
         }
     }
@@ -1947,7 +2728,7 @@ function _ezchimp_listgroup_subscriptions($client_id, &$ezvars) {
         logActivity("_ezchimp_listgroup_subscriptions: remaining all_lists - ".print_r($all_lists, true));
     }
     foreach ($all_lists as $list => $one) {
-        $subscriptions[] = array('list' => $list, 'unsubscribe' => 1);
+        $subscriptions[] = [ 'list' => $list, 'unsubscribe' => 1 ];
     }
     if ($ezvars->debug > 1) {
         logActivity("_ezchimp_listgroup_subscriptions: subscriptions - ".print_r($subscriptions, true));
@@ -1957,58 +2738,94 @@ function _ezchimp_listgroup_subscriptions($client_id, &$ezvars) {
 }
 
 function _ezchimp_client_email_type($client_id, &$ezvars) {
-    $email_type = $ezvars->settings['default_format'];
-
-    $field_id = 0;
-    $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'dropdown', 'sortorder' => 46307));
-    if ($row = mysql_fetch_assoc($result)) {
-        $field_id = $row['id'];
+    $emailType = $ezvars->settings['default_format'];
+    $fieldId = 0;
+    try {
+        $rows = Capsule::table('tblcustomfields')
+            ->select('id')
+            ->where([
+                [ 'type', '=', 'client' ],
+                [ 'fieldtype', '=', 'dropdown' ],
+                [ 'sortorder', '=', 46307 ]
+            ])
+            ->get();
+        if ($rows[0]) {
+            $fieldId = $rows[0]->id;
+        }
+        if ($ezvars->debug > 1) {
+            logActivity("_ezchimp_client_email_type: fieldId - $fieldId");
+        }
+    } catch (\Exception $e) {
+        logActivity("_ezchimp_client_email_type: ERROR: get default mail format: " . $e->getMessage());
     }
-    mysql_free_result($result);
-    if ($ezvars->debug > 1) {
-        logActivity("_ezchimp_client_email_type: field_id - $field_id");
-    }
 
-    if ($field_id > 0) {
-        $result = select_query('tblcustomfieldsvalues', 'value', array('fieldid' => $field_id, 'relid' => $client_id));
-        if ($row = mysql_fetch_assoc($result)) {
-            $et = strtolower($row['value']);
-            if (('html' == $et) || ('text' == $et)) {
-                $email_type = $et;
+    if ($fieldId > 0) {
+        try {
+            $rows = Capsule::table('tblcustomfieldsvalues')
+                ->select('value')
+                ->where([
+                    [ 'fieldid', '=', $fieldId ],
+                    [ 'relid', '=', $client_id ]
+                ])
+                ->get();
+            if ($rows[0]) {
+                $et = strtolower($rows[0]->value);
+                if (('html' == $et) || ('text' == $et)) {
+                    $emailType = $et;
+                }
             }
-        }
-        mysql_free_result($result);
-        if ($ezvars->debug > 2) {
-            logActivity("_ezchimp_client_email_type: email_type - $email_type");
+            if ($ezvars->debug > 2) {
+                logActivity("_ezchimp_client_email_type: email_type - $emailType");
+            }
+        } catch (\Exception $e) {
+            logActivity("_ezchimp_client_email_type: ERROR: get field options: " . $e->getMessage());
         }
     }
 
-    return $email_type;
+    return $emailType;
 }
 
-function _ezchimp_client_subscribe_contacts($client_id, &$ezvars) {
-    $subscribecontacts = '';
-
-    $field_id = 0;
-    $result = select_query('tblcustomfields', 'id', array('type' => 'client', 'fieldtype' => 'tickbox', 'sortorder' => 46309));
-    if ($row = mysql_fetch_assoc($result)) {
-        $field_id = $row['id'];
-    }
-    mysql_free_result($result);
-    if ($ezvars->debug > 1) {
-        logActivity("_ezchimp_client_subscribe_contacts: field_id - $field_id");
-    }
-
-    if ($field_id >0) {
-        $result = select_query('tblcustomfieldsvalues', 'value', array('fieldid' => $field_id, 'relid' => $client_id));
-        if ($row = mysql_fetch_assoc($result)) {
-            $subscribecontacts = $row['value'];
+function _ezchimp_client_subscribe_contacts($clientId, &$ezvars) {
+    $subscribeContacts = '';
+    $fieldId = 0;
+    try {
+        $rows = Capsule::table('tblcustomfields')
+            ->select('id')
+            ->where([
+                [ 'type', '=', 'client' ],
+                [ 'fieldtype', '=', 'tickbox' ],
+                [ 'sortorder', '=', 46309 ]
+            ])
+            ->get();
+        if ($rows[0]) {
+            $fieldId = $rows[0]->id;
         }
-        mysql_free_result($result);
-        if ($ezvars->debug > 2) {
-            logActivity("_ezchimp_client_subscribe_contacts: subscribecontacts - $subscribecontacts");
+        if ($ezvars->debug > 1) {
+            logActivity("_ezchimp_client_subscribe_contacts: field_id - $fieldId");
+        }
+    } catch (\Exception $e) {
+        logActivity("_ezchimp_client_subscribe_contacts: ERROR: get field ID: " . $e->getMessage());
+    }
+
+    if ($fieldId >0) {
+        try {
+            $rows = Capsule::table('tblcustomfieldsvalues')
+                ->select('value')
+                ->where([
+                    [ 'fieldid', '=', $fieldId ],
+                    [ 'relid', '=', $clientId ]
+                ])
+                ->get();
+            if ($rows[0]) {
+                $subscribeContacts = $rows[0]->value;
+            }
+            if ($ezvars->debug > 2) {
+                logActivity("_ezchimp_client_subscribe_contacts: subscribecontacts - $subscribeContacts");
+            }
+        } catch (\Exception $e) {
+            logActivity("_ezchimp_client_subscribe_contacts: ERROR: get field options: " . $e->getMessage());
         }
     }
 
-    return $subscribecontacts;
+    return $subscribeContacts;
 }

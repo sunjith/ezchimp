@@ -1,6 +1,6 @@
 SETUP
 -------
-1. Download and extract the ezchimp.zip file into your modules/addons/ folder within your WHMCS directory.
+1. Download and extract the ezchimp_X.xx.zip file into your modules/addons/ folder within your WHMCS directory.
 
 2. Move the ezchimp_webhook.php file to your WHMCS root directory (eg: /home/username/public_html/whmcs).
  Test and make sure http://yourdomain.com/whmcs/ezchimp_webhook.php is giving a blank page instead of any
@@ -26,12 +26,16 @@ SETUP
 
 10. Use the “Tools” link to initially subscribe existing clients after a fresh activation of ezchimp module.
 
-See the full documentation with screenshots here: http://blog.admod.com/2012/01/23/ezchimp-whmcs-mailchimp-integration/
+VERSION NOTES:
+- Ezchimp 3.x versions doesn't support WHMCS 6.x
+- Ezchimp 1.x and 2.x versions have been discontinued and will not work because MailChimp has stopped supporting
+  their API version 1.3 which is used in those versions.
+
+See the full documentation with screenshots here: http://supportmonk.com/ezchimp-whmcs-mailchimp-integration/
 
 
 LICENSE
 -------
-
 ezchimp source code is licensed under GPLv3 which can be found here: http://www.gnu.org/licenses/gpl.html
 
 
@@ -55,6 +59,16 @@ CREDITS:
 
 CHANGE LOG:
 ----------
+3.1 - 28 Dec 2018: Fix sending firstname and lastname to Mailchimp.
+3.0 - 27 Aug 2018: Update MailChimp API to version 3.0. German language translation.
+2.7 - 19 Aug 2017: Fix a bug in auto-subscribe by product groups.
+2.6 - 21 Jun 2017: New tool to subscribe inactive clients as well.
+2.5 - 19 Jun 2017: Tools to subscribe only the clients who have not opted out of marketing emails.
+2.4 - 21 Mar 2017: Subscribe affiliate to selected lists on activation.
+2.3 - 17 Mar 2017: Fix interest group subscriptions within the same list.
+2.2 - 01 Mar 2017: Do not un-subscribe from lists that aren't enabled.
+2.1 - 15 Feb 2017: Fix auto subscribe settings.
+2.0 - 30 Dec 2016: Use Capsule based database interaction to support WHMCS 7.x with PHP 7.x
 1.22 - Fix interest group subscriptions within the same list.
 1.21 - Do not un-subscribe from lists that aren't enabled.
 1.20 - 16 Nov 2016: Fix issue with default subscription when adding client.
